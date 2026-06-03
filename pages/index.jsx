@@ -47,6 +47,13 @@ function pillLabelColor(isDark, selected, lightUnselected = C.neutral900) {
 function pillHintColor(isDark, selected) {
   return selected ? C.accent500 : (isDark ? "#F0EEF8" : C.neutral300);
 }
+function pillBorder(isDark, selected, width = 1) {
+  return selected
+    ? `${width}px solid ${C.accent500}`
+    : isDark
+      ? `${width}px solid rgba(124,111,205,0.25)`
+      : `${width}px solid ${C.neutral200}`;
+}
 
 // Typography scale
 const T = {
@@ -520,7 +527,7 @@ function SetupScreen({ next, back, setDefaultEnergy, setDefaultTime }) {
         {slots.map(s => (
           <button key={s} onClick={() => setSlot(s)} style={{
             padding: "14px", borderRadius: BTN_RADIUS,
-            border: `1px solid ${slot === s ? C.accent500 : C.neutral200}`,
+            border: pillBorder(isDark, slot === s),
             background: pillBackground(isDark, slot === s),
             color: pillTextColor(isDark, slot === s),
             ...BTN_FONT, fontSize: 16, cursor: "pointer", fontFamily: "Inter",
@@ -535,7 +542,7 @@ function SetupScreen({ next, back, setDefaultEnergy, setDefaultTime }) {
         {durations.map(d => (
           <button key={d} onClick={() => { setDuration(d); setDefaultTime(d); }} style={{
             flex: "1 1 auto", minWidth: 72, padding: "10px 12px", borderRadius: BTN_RADIUS,
-            border: `1px solid ${duration === d ? C.accent500 : C.neutral200}`,
+            border: pillBorder(isDark, duration === d),
             background: pillBackground(isDark, duration === d),
             color: pillTextColor(isDark, duration === d),
             ...BTN_FONT, fontSize: 16, cursor: "pointer", fontFamily: "Inter",
@@ -554,7 +561,7 @@ function SetupScreen({ next, back, setDefaultEnergy, setDefaultTime }) {
         ].map(e => (
           <button key={e.key} onClick={() => { setEnergy(e.key); setDefaultEnergy(e.key); }} style={{
             flex: 1, padding: "8px 0", borderRadius: BTN_RADIUS,
-            border: `1px solid ${energy === e.key ? C.accent500 : C.neutral200}`,
+            border: pillBorder(isDark, energy === e.key),
             background: pillBackground(isDark, energy === e.key),
             color: pillTextColor(isDark, energy === e.key),
             cursor: "pointer", fontFamily: "Inter",
@@ -638,7 +645,7 @@ function ReadyScreen({ next, back, setGranularity }) {
             ].map(o => (
               <button key={o.key} onClick={() => { setSelected(o.key); setGranularity(o.key); }} style={{
                 flex: 1, padding: "14px 6px 12px", borderRadius: 16,
-                border: `1.5px solid ${selected === o.key ? C.accent500 : C.neutral200}`,
+                border: pillBorder(isDark, selected === o.key, 1.5),
                 background: pillBackground(isDark, selected === o.key),
                 cursor: "pointer", fontFamily: "Inter",
                 display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
@@ -860,7 +867,7 @@ function AllStepsScreen({ back, steps, stepIndex, onPick, task, loading, stepLin
             {/* Card */}
             <div onClick={() => onPick(i)} style={{
               flex: 1, background: pillBackground(isDark, i === stepIndex),
-              border: `1px solid ${i === stepIndex ? C.accent500 : C.neutral200}`,
+              border: pillBorder(isDark, i === stepIndex),
               borderRadius: CARD_RADIUS, padding: "14px 16px",
               cursor: "pointer", opacity: i < stepIndex ? 0.5 : 1,
               marginBottom: 8,
@@ -917,6 +924,12 @@ function AllStepsScreen({ back, steps, stepIndex, onPick, task, loading, stepLin
       </div>
     </>
   );
+}
+
+function inProgressShellBackground(isDark) {
+  return isDark
+    ? "radial-gradient(ellipse at 50% 30%, #1E1B35 0%, #1A1828 60%)"
+    : "radial-gradient(ellipse at 50% 30%, #EEE9FF 0%, #F0EEF5 60%)";
 }
 
 function InProgressScreen({ onDone, onPause, onTooMuch, onDefer, step, resourceLink }) {
@@ -1069,7 +1082,7 @@ function PauseScreen({ onSaveAndPause, onComeBackLater, onResume }) {
         ].map(o => (
           <button key={o.label} onClick={() => setSelected(o.label)} style={{
             padding: "14px 18px", borderRadius: BTN_RADIUS,
-            border: `1px solid ${selected === o.label ? C.accent500 : C.neutral200}`,
+            border: pillBorder(isDark, selected === o.label),
             background: pillBackground(isDark, selected === o.label),
             color: pillTextColor(isDark, selected === o.label),
             ...BTN_FONT, cursor: "pointer", fontFamily: "Inter",
@@ -1284,7 +1297,14 @@ function HomeScreen({ onResume, tasks, setTasks, onHistory }) {
   );
 }
 
+function doneShellBackground(isDark) {
+  return isDark
+    ? "radial-gradient(ellipse at 50% 20%, #1A2D24 0%, #1A1828 60%)"
+    : "radial-gradient(ellipse at 50% 20%, #E8FFF4 0%, #F0EEF5 60%)";
+}
+
 function DoneScreen({ next, onMore, isLast }) {
+  const isDark = useContext(IsDarkContext);
   const [flashOpacity, setFlashOpacity] = useState(0);
 
   useEffect(() => {
@@ -1309,7 +1329,8 @@ function DoneScreen({ next, onMore, isLast }) {
       <div style={{ position: "relative", zIndex: 1, flex: 1, display: "flex", flexDirection: "column" }}>
       <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, textAlign: "center" }}>
         <div style={{
-          width: 110, height: 110, borderRadius: "50%", background: C.neutral50,
+          width: 110, height: 110, borderRadius: "50%",
+          background: isDark ? "#1A2D24" : C.neutral50,
           border: `2px solid ${C.success100}`,
           boxShadow: "0 8px 28px rgba(107,191,154,0.22)",
           display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 8,
@@ -1392,7 +1413,7 @@ function SwitchTaskScreen({ tasks, onPick, onAdd, onBack }) {
         {tasks.map((t, i) => (
           <button key={i} onClick={() => onPick(t)} style={{
             padding: "16px 18px", borderRadius: CARD_RADIUS,
-            border: `1px solid ${C.neutral200}`, background: pillBackground(isDark, false),
+            border: pillBorder(isDark, false), background: pillBackground(isDark, false),
             display: "flex", alignItems: "center", gap: 12,
             cursor: "pointer", fontFamily: "Inter", textAlign: "left",
           }}>
@@ -1505,7 +1526,7 @@ function ReturnPausedScreen({ next, onFresh, onPickTask, step, task, note, pause
             onClick={() => onPickTask(t)}
             style={{
               padding: "10px 18px", borderRadius: BTN_RADIUS,
-              border: `1px solid ${C.neutral200}`, background: pillBackground(isDark, false),
+              border: pillBorder(isDark, false), background: pillBackground(isDark, false),
               color: pillTextColor(isDark, false), ...BTN_FONT, fontSize: 16,
               cursor: "pointer", fontFamily: "Inter",
             }}
@@ -1513,7 +1534,7 @@ function ReturnPausedScreen({ next, onFresh, onPickTask, step, task, note, pause
         ))}
         <button onClick={onFresh} style={{
           padding: "10px 18px", borderRadius: BTN_RADIUS,
-          border: `1px solid ${C.neutral200}`, background: pillBackground(isDark, false),
+          border: pillBorder(isDark, false), background: pillBackground(isDark, false),
           color: pillTextColor(isDark, false), ...BTN_FONT, fontSize: 16,
           cursor: "pointer", fontFamily: "Inter",
         }}>+ Add</button>
@@ -1870,11 +1891,6 @@ function MomentumScreen({ next, onExit, completedSteps, onMarkDone, task }) {
 // APP
 // ═══════════════════════════════════════════════════════════════════════
 
-const SCREEN_SHELL_BACKGROUNDS = {
-  inprogress: "radial-gradient(ellipse at 50% 30%, #EEE9FF 0%, #F0EEF5 60%)",
-  done: "radial-gradient(ellipse at 50% 28%, #FFFFFF 0%, #F2F1F6 72%)",
-};
-
 export default function NudgeApp() {
   const [isDark, setIsDark] = useState(false);
   const [screen, setScreen] = useState("splash");
@@ -2012,7 +2028,11 @@ export default function NudgeApp() {
     />,
   };
 
-  const shellBackground = SCREEN_SHELL_BACKGROUNDS[screen] ?? (isDark ? "#1A1828" : C.neutral100);
+  const shellBackground = screen === "inprogress"
+    ? inProgressShellBackground(isDark)
+    : screen === "done"
+      ? doneShellBackground(isDark)
+      : (isDark ? "#1A1828" : C.neutral100);
 
   return (
     <IsDarkContext.Provider value={isDark}>
