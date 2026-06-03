@@ -1989,6 +1989,7 @@ export default function NudgeApp() {
   return (
     <IsDarkContext.Provider value={isDark}>
     <div style={{
+      flex: 1,
       minHeight: "100vh",
       width: "100%",
       maxWidth: "100%",
@@ -2002,8 +2003,27 @@ export default function NudgeApp() {
       "--n7": c7(isDark),
     }}>
       <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-      <style>{`@keyframes drawCheck { from { stroke-dashoffset: 80; } to { stroke-dashoffset: 0; } }
-@keyframes ghostPulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }`}</style>
+      <style>{`
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  min-height: 100%;
+  background: ${shellBackground};
+}
+#__next {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  background: ${shellBackground};
+}
+@keyframes drawCheck { from { stroke-dashoffset: 80; } to { stroke-dashoffset: 0; } }
+@keyframes ghostPulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
+`}</style>
       <div style={{
         flex: 1,
         display: "flex",
