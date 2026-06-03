@@ -48,17 +48,6 @@ function pillHintColor(isDark, selected) {
   return selected ? C.accent500 : (isDark ? "#F0EEF8" : C.neutral300);
 }
 
-const LIGHT_SURFACE_TEXT = "#111111";
-
-function lightCardStyle(extra = {}) {
-  return {
-    color: LIGHT_SURFACE_TEXT,
-    "--n9": LIGHT_SURFACE_TEXT,
-    "--n7": C.neutral700,
-    ...extra,
-  };
-}
-
 // Typography scale
 const T = {
   label:   { fontFamily: "Inter", fontWeight: 600, fontSize: 14, letterSpacing: "0.08em", textTransform: "uppercase" },
@@ -373,10 +362,9 @@ function Card({ children, style = {} }) {
   const isDark = useContext(IsDarkContext);
   return (
     <div style={{
-      background: isDark ? "#252338" : C.neutral50,
+      background: isDark ? "#2D2A45" : C.neutral50,
       borderRadius: CARD_RADIUS,
       padding: CARD_PAD,
-      color: "#111111",
       boxShadow: "0 1px 3px rgba(100,90,180,0.08), 0 8px 24px rgba(100,90,180,0.06)",
       ...style,
     }}>{children}</div>
@@ -588,6 +576,7 @@ function SetupScreen({ next, back, setDefaultEnergy, setDefaultTime }) {
 function ReadyScreen({ next, back, setGranularity }) {
   const isDark = useContext(IsDarkContext);
   const [selected, setSelected] = useState("balanced");
+  const readyInfoBg = isDark ? "#2A2445" : C.accent100;
   return (
     <>
       <Dots total={3} active={2} />
@@ -663,7 +652,7 @@ function ReadyScreen({ next, back, setGranularity }) {
         </div>
 
         <div style={{
-          background: C.accent100, borderRadius: 20,
+          background: readyInfoBg, borderRadius: 20,
           padding: "20px 24px", width: "100%",
           textAlign: "center", boxSizing: "border-box",
         }}>
@@ -703,6 +692,7 @@ function LoadingStepCard() {
 }
 
 function SuggestionScreen({ next, onTooHard, onAnother, onSkip, onExit, task, stepIndex, steps, energy, loading, deferredNote, onDismissDeferNote }) {
+  const isDark = useContext(IsDarkContext);
   const step = steps[stepIndex] || steps[0];
   const total = steps.length || 1;
   const pct = loading ? 0 : ((stepIndex + 1) / total) * 100;
@@ -737,12 +727,12 @@ function SuggestionScreen({ next, onTooHard, onAnother, onSkip, onExit, task, st
         {loading ? (
           <LoadingStepCard />
         ) : (
-          <Card style={lightCardStyle({
+          <Card style={{
             marginBottom: 28,
-            background: "linear-gradient(145deg, #FFFFFF 0%, #FAF9FF 100%)",
+            background: isDark ? "#2D2A45" : "linear-gradient(145deg, #FFFFFF 0%, #FAF9FF 100%)",
             boxShadow: "0 2px 8px rgba(100,90,180,0.08), 0 16px 48px rgba(100,90,180,0.08)",
-            border: "1px solid rgba(124,111,205,0.12)",
-          })}>
+            border: isDark ? "1px solid rgba(124,111,205,0.2)" : "1px solid rgba(124,111,205,0.12)",
+          }}>
             {/* Tags row */}
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16, alignItems: "center" }}>
               <span style={{ ...T.label, color: C.accent500 }}>{taskLabel}</span>
@@ -752,7 +742,7 @@ function SuggestionScreen({ next, onTooHard, onAnother, onSkip, onExit, task, st
               <span style={{ ...T.label, color: C.accent500 }}>{energy.toUpperCase()} ENERGY</span>
             </div>
 
-            <div style={{ ...T.subtitle, color: LIGHT_SURFACE_TEXT, fontWeight: 700, marginBottom: 20 }}>{step.text}</div>
+            <div style={{ ...T.subtitle, color: "var(--n9)", fontWeight: 700, marginBottom: 20 }}>{step.text}</div>
 
             <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
               {step.tags.map((t, i) => <Tag key={t} label={t} green={i === 1 || t === "no prep needed"} />)}
@@ -876,12 +866,7 @@ function AllStepsScreen({ back, steps, stepIndex, onPick, task, loading, stepLin
               marginBottom: 8,
             }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-                <div style={{
-                  ...T.small,
-                  color: i === stepIndex ? LIGHT_SURFACE_TEXT : "var(--n9)",
-                  flex: 1,
-                  textDecoration: i < stepIndex ? "line-through" : "none",
-                }}>{s.text}</div>
+                <div style={{ ...T.small, color: "var(--n9)", flex: 1, textDecoration: i < stepIndex ? "line-through" : "none" }}>{s.text}</div>
                 {i === stepIndex && <span style={{ ...T.label, color: C.accent500, fontSize: 10 }}>NOW</span>}
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6, rowGap: 4, marginTop: 8 }}>
@@ -935,6 +920,7 @@ function AllStepsScreen({ back, steps, stepIndex, onPick, task, loading, stepLin
 }
 
 function InProgressScreen({ onDone, onPause, onTooMuch, onDefer, step, resourceLink }) {
+  const isDark = useContext(IsDarkContext);
   const [expand, setExpand] = useState(false);
   const [showDeferInput, setShowDeferInput] = useState(false);
   const [deferDraft, setDeferDraft] = useState("");
@@ -962,9 +948,9 @@ function InProgressScreen({ onDone, onPause, onTooMuch, onDefer, step, resourceL
         <div style={{
           width: 232, height: 232,
           borderRadius: "50%",
-          background: "rgba(238,233,255,0.75)",
+          background: isDark ? "rgba(45,42,69,0.9)" : "rgba(238,233,255,0.75)",
           backdropFilter: "blur(12px)",
-          border: "1.5px solid rgba(124,111,205,0.25)",
+          border: isDark ? "1.5px solid rgba(124,111,205,0.35)" : "1.5px solid rgba(124,111,205,0.25)",
           display: "flex", alignItems: "center", justifyContent: "center",
           overflow: "hidden",
           boxShadow: expand
@@ -975,7 +961,7 @@ function InProgressScreen({ onDone, onPause, onTooMuch, onDefer, step, resourceL
           boxSizing: "border-box",
           flexDirection: "column", gap: 8,
         }}>
-          <div style={{ ...T.subtitle, color: LIGHT_SURFACE_TEXT, fontSize: 14, lineHeight: 1.3 }}>{step?.text ?? "Your step is loading…"}</div>
+          <div style={{ ...T.subtitle, color: "var(--n9)", fontSize: 14, lineHeight: 1.3 }}>{step?.text ?? "Your step is loading…"}</div>
           {resourceLink ? (
             <a
               href={resourceLink}
@@ -1034,6 +1020,7 @@ function InProgressScreen({ onDone, onPause, onTooMuch, onDefer, step, resourceL
 }
 
 function SimplifyScreen({ next, onStillTooMuch, step }) {
+  const isDark = useContext(IsDarkContext);
   return (
     <>
       <Label color={C.warning500}>Let's Simplify</Label>
@@ -1042,15 +1029,15 @@ function SimplifyScreen({ next, onStillTooMuch, step }) {
 
       <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", gap: 0 }}>
         {/* Original — struck through */}
-        <Card style={lightCardStyle({ background: C.warning100, marginBottom: 16 })}>
+        <Card style={{ background: isDark ? "#3A2D1A" : C.warning100, marginBottom: 16 }}>
           <div style={{ ...T.label, color: C.warning500, marginBottom: 10 }}>Original</div>
-          <div style={{ ...T.small, color: LIGHT_SURFACE_TEXT, textDecoration: "line-through", lineHeight: 1.5 }}>{step?.text ?? ""}</div>
+          <div style={{ ...T.small, color: "var(--n9)", textDecoration: "line-through", lineHeight: 1.5 }}>{step?.text ?? ""}</div>
         </Card>
 
         {/* Smaller version */}
-        <Card style={lightCardStyle({ background: C.success100, marginBottom: 40 })}>
+        <Card style={{ background: isDark ? "#1A2D24" : C.success100, marginBottom: 40 }}>
           <div style={{ ...T.label, color: C.success500, marginBottom: 10 }}>Smaller Version</div>
-          <div style={{ ...T.subtitle, color: LIGHT_SURFACE_TEXT, lineHeight: 1.4 }}>{step?.tooHard ?? ""}</div>
+          <div style={{ ...T.subtitle, color: "var(--n9)", lineHeight: 1.4 }}>{step?.tooHard ?? ""}</div>
         </Card>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -1496,15 +1483,15 @@ function ReturnPausedScreen({ next, onFresh, onPickTask, step, task, note, pause
       <div style={{ ...T.heading, color: "var(--n9)", marginBottom: 8 }}>Welcome back</div>
       <div style={{ ...T.hint, marginBottom: 28 }}>You were in the middle of something.</div>
 
-      <Card style={lightCardStyle({ background: C.accent100, marginBottom: 24, borderRadius: 20 })}>
+      <Card style={{ background: isDark ? "#2A2445" : C.accent100, marginBottom: 24, borderRadius: 20 }}>
         <div style={{ ...T.label, color: C.accent500, marginBottom: 6 }}>You were here</div>
-        <div style={{ ...T.small, color: C.accent700, marginBottom: 4 }}>{task || "Your task"}</div>
+        <div style={{ ...T.small, color: isDark ? "var(--n9)" : C.accent700, marginBottom: 4 }}>{task || "Your task"}</div>
         {pauseProgress ? (
           <div style={{ ...T.hint, color: C.accent500, marginBottom: 8 }}>{pauseProgress}</div>
         ) : null}
-        <div style={{ ...T.subtitle, color: LIGHT_SURFACE_TEXT, marginBottom: note ? 12 : 16, fontWeight: 700 }}>{step?.text || "Pick one bullet and expand it"}</div>
+        <div style={{ ...T.subtitle, color: "var(--n9)", marginBottom: note ? 12 : 16, fontWeight: 700 }}>{step?.text || "Pick one bullet and expand it"}</div>
         {note ? (
-          <div style={{ ...T.small, color: LIGHT_SURFACE_TEXT, marginBottom: 16, lineHeight: 1.5, fontStyle: "italic" }}>{note}</div>
+          <div style={{ ...T.small, color: "var(--n7)", marginBottom: 16, lineHeight: 1.5, fontStyle: "italic" }}>{note}</div>
         ) : null}
         <BtnPrimary onClick={next}>Continue where you left off</BtnPrimary>
       </Card>
@@ -1536,6 +1523,7 @@ function ReturnPausedScreen({ next, onFresh, onPickTask, step, task, note, pause
 }
 
 function ReturnShortScreen({ next, onExit }) {
+  const isDark = useContext(IsDarkContext);
   return (
     <>
       <Label color={C.accent500}>Good Morning</Label>
@@ -1553,10 +1541,10 @@ function ReturnShortScreen({ next, onExit }) {
         ))}
         <div style={{ ...T.hint, fontSize: 12, marginLeft: 6, whiteSpace: "nowrap" }}>3 days showing up</div>
       </div>
-      <Card style={lightCardStyle({ background: C.success100, borderRadius: 16, marginBottom: 32 })}>
+      <Card style={{ background: isDark ? "#1A2D24" : C.success100, borderRadius: 16, marginBottom: 32 }}>
         <div style={{ ...T.label, color: C.success500, marginBottom: 6 }}>Earlier today</div>
-        <div style={{ ...T.subtitle, color: LIGHT_SURFACE_TEXT, fontWeight: 700, marginBottom: 4 }}>Finished everything on your list</div>
-        <div style={{ ...T.hint, color: LIGHT_SURFACE_TEXT }}>3 things done</div>
+        <div style={{ ...T.subtitle, color: "var(--n9)", fontWeight: 700, marginBottom: 4 }}>Finished everything on your list</div>
+        <div style={{ ...T.hint, color: "var(--n7)" }}>3 things done</div>
       </Card>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <BtnPrimary onClick={next}>What's next?</BtnPrimary>
@@ -1759,7 +1747,7 @@ function PatternScreen({ next, onExit, completedCount, topEnergy, insights }) {
                 {(iconSvgs[item.iconKey] || iconSvgs.task)(C.accent500)}
               </div>
               <div>
-                <div style={{ ...T.hint, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.08em" }}>{item.label}</div>
+                <div style={{ ...T.hint, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--n7)" }}>{item.label}</div>
                 <div style={{ ...T.small, color: "var(--n9)", fontWeight: 600 }}>{item.value}</div>
               </div>
             </Card>
@@ -1802,6 +1790,7 @@ function PatternScreen({ next, onExit, completedCount, topEnergy, insights }) {
 }
 
 function MomentumScreen({ next, onExit, completedSteps, onMarkDone, task }) {
+  const isDark = useContext(IsDarkContext);
   const [markDoneMsg, setMarkDoneMsg] = useState(false);
   const steps = completedSteps?.length > 0 ? completedSteps : [];
 
@@ -1816,17 +1805,17 @@ function MomentumScreen({ next, onExit, completedSteps, onMarkDone, task }) {
       <div style={{ ...T.heading, color: "var(--n9)", marginBottom: 8 }}>Look at what's adding up.</div>
       <div style={{ ...T.small, color: "var(--n7)", marginBottom: 20, lineHeight: 1.6 }}>Each small step connects to something bigger.</div>
 
-      <Card style={lightCardStyle({ background: C.accent100, marginBottom: 14 })}>
+      <Card style={{ background: isDark ? "#2A2445" : C.accent100, marginBottom: 14 }}>
         <div style={{ ...T.label, color: C.accent500, marginBottom: 12 }}>{task || "Your project"}</div>
         {steps.length === 0 && (
-          <div style={{ ...T.hint, color: LIGHT_SURFACE_TEXT, marginBottom: 0 }}>Your completed steps will appear here.</div>
+          <div style={{ ...T.hint, color: "var(--n7)", marginBottom: 0 }}>Your completed steps will appear here.</div>
         )}
         {steps.map((s, i) => (
           <div key={i} style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: i < steps.length - 1 ? 8 : 0 }}>
             <div style={{ width: 18, height: 18, borderRadius: "50%", background: C.accent500, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
               <svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4L4 7L9 1" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
             </div>
-            <span style={{ ...T.small, color: LIGHT_SURFACE_TEXT }}>{s}</span>
+            <span style={{ ...T.small, color: "var(--n9)" }}>{s}</span>
           </div>
         ))}
         {completedSteps?.length > 0 && (
@@ -1837,12 +1826,16 @@ function MomentumScreen({ next, onExit, completedSteps, onMarkDone, task }) {
         )}
       </Card>
 
-      <Card style={lightCardStyle({ background: "#F0FAF0", border: "1px solid #D4EAD4", marginBottom: 16 })}>
+      <Card style={{
+        background: isDark ? "#2D2A45" : "#F0FAF0",
+        border: isDark ? "1px solid rgba(124,111,205,0.2)" : "1px solid #D4EAD4",
+        marginBottom: 16,
+      }}>
         <div style={{ ...T.label, color: C.warning500, marginBottom: 6 }}>Coming back to this</div>
         {task ? (
-          <div style={{ ...T.small, color: LIGHT_SURFACE_TEXT, fontWeight: 600, marginBottom: 8, lineHeight: 1.4 }}>{task}</div>
+          <div style={{ ...T.small, color: "var(--n9)", fontWeight: 600, marginBottom: 8, lineHeight: 1.4 }}>{task}</div>
         ) : null}
-        <div style={{ ...T.small, color: LIGHT_SURFACE_TEXT }}>You've started this before. Want to try a smaller first step?</div>
+        <div style={{ ...T.small, color: "var(--n9)" }}>You've started this before. Want to try a smaller first step?</div>
       </Card>
 
       {markDoneMsg ? (
