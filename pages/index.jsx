@@ -48,6 +48,17 @@ function pillHintColor(isDark, selected) {
   return selected ? C.accent500 : (isDark ? "#F0EEF8" : C.neutral300);
 }
 
+const LIGHT_SURFACE_TEXT = "#111111";
+
+function lightCardStyle(extra = {}) {
+  return {
+    color: LIGHT_SURFACE_TEXT,
+    "--n9": LIGHT_SURFACE_TEXT,
+    "--n7": C.neutral700,
+    ...extra,
+  };
+}
+
 // Typography scale
 const T = {
   label:   { fontFamily: "Inter", fontWeight: 600, fontSize: 14, letterSpacing: "0.08em", textTransform: "uppercase" },
@@ -726,12 +737,12 @@ function SuggestionScreen({ next, onTooHard, onAnother, onSkip, onExit, task, st
         {loading ? (
           <LoadingStepCard />
         ) : (
-          <Card style={{
+          <Card style={lightCardStyle({
             marginBottom: 28,
             background: "linear-gradient(145deg, #FFFFFF 0%, #FAF9FF 100%)",
             boxShadow: "0 2px 8px rgba(100,90,180,0.08), 0 16px 48px rgba(100,90,180,0.08)",
             border: "1px solid rgba(124,111,205,0.12)",
-          }}>
+          })}>
             {/* Tags row */}
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16, alignItems: "center" }}>
               <span style={{ ...T.label, color: C.accent500 }}>{taskLabel}</span>
@@ -741,7 +752,7 @@ function SuggestionScreen({ next, onTooHard, onAnother, onSkip, onExit, task, st
               <span style={{ ...T.label, color: C.accent500 }}>{energy.toUpperCase()} ENERGY</span>
             </div>
 
-            <div style={{ ...T.subtitle, color: "var(--n9)", fontWeight: 700, marginBottom: 20 }}>{step.text}</div>
+            <div style={{ ...T.subtitle, color: LIGHT_SURFACE_TEXT, fontWeight: 700, marginBottom: 20 }}>{step.text}</div>
 
             <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
               {step.tags.map((t, i) => <Tag key={t} label={t} green={i === 1 || t === "no prep needed"} />)}
@@ -865,7 +876,12 @@ function AllStepsScreen({ back, steps, stepIndex, onPick, task, loading, stepLin
               marginBottom: 8,
             }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-                <div style={{ ...T.small, color: "var(--n9)", flex: 1, textDecoration: i < stepIndex ? "line-through" : "none" }}>{s.text}</div>
+                <div style={{
+                  ...T.small,
+                  color: i === stepIndex ? LIGHT_SURFACE_TEXT : "var(--n9)",
+                  flex: 1,
+                  textDecoration: i < stepIndex ? "line-through" : "none",
+                }}>{s.text}</div>
                 {i === stepIndex && <span style={{ ...T.label, color: C.accent500, fontSize: 10 }}>NOW</span>}
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6, rowGap: 4, marginTop: 8 }}>
@@ -959,7 +975,7 @@ function InProgressScreen({ onDone, onPause, onTooMuch, onDefer, step, resourceL
           boxSizing: "border-box",
           flexDirection: "column", gap: 8,
         }}>
-          <div style={{ ...T.subtitle, color: "var(--n9)", fontSize: 14, lineHeight: 1.3 }}>{step?.text ?? "Your step is loading…"}</div>
+          <div style={{ ...T.subtitle, color: LIGHT_SURFACE_TEXT, fontSize: 14, lineHeight: 1.3 }}>{step?.text ?? "Your step is loading…"}</div>
           {resourceLink ? (
             <a
               href={resourceLink}
@@ -1026,15 +1042,15 @@ function SimplifyScreen({ next, onStillTooMuch, step }) {
 
       <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", gap: 0 }}>
         {/* Original — struck through */}
-        <Card style={{ background: C.warning100, marginBottom: 16 }}>
+        <Card style={lightCardStyle({ background: C.warning100, marginBottom: 16 })}>
           <div style={{ ...T.label, color: C.warning500, marginBottom: 10 }}>Original</div>
-          <div style={{ ...T.small, color: C.neutral300, textDecoration: "line-through", lineHeight: 1.5 }}>{step?.text ?? ""}</div>
+          <div style={{ ...T.small, color: LIGHT_SURFACE_TEXT, textDecoration: "line-through", lineHeight: 1.5 }}>{step?.text ?? ""}</div>
         </Card>
 
         {/* Smaller version */}
-        <Card style={{ background: C.success100, marginBottom: 40 }}>
+        <Card style={lightCardStyle({ background: C.success100, marginBottom: 40 })}>
           <div style={{ ...T.label, color: C.success500, marginBottom: 10 }}>Smaller Version</div>
-          <div style={{ ...T.subtitle, color: "var(--n9)", lineHeight: 1.4 }}>{step?.tooHard ?? ""}</div>
+          <div style={{ ...T.subtitle, color: LIGHT_SURFACE_TEXT, lineHeight: 1.4 }}>{step?.tooHard ?? ""}</div>
         </Card>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -1480,15 +1496,15 @@ function ReturnPausedScreen({ next, onFresh, onPickTask, step, task, note, pause
       <div style={{ ...T.heading, color: "var(--n9)", marginBottom: 8 }}>Welcome back</div>
       <div style={{ ...T.hint, marginBottom: 28 }}>You were in the middle of something.</div>
 
-      <Card style={{ background: C.accent100, marginBottom: 24, borderRadius: 20 }}>
+      <Card style={lightCardStyle({ background: C.accent100, marginBottom: 24, borderRadius: 20 })}>
         <div style={{ ...T.label, color: C.accent500, marginBottom: 6 }}>You were here</div>
         <div style={{ ...T.small, color: C.accent700, marginBottom: 4 }}>{task || "Your task"}</div>
         {pauseProgress ? (
           <div style={{ ...T.hint, color: C.accent500, marginBottom: 8 }}>{pauseProgress}</div>
         ) : null}
-        <div style={{ ...T.subtitle, color: "var(--n9)", marginBottom: note ? 12 : 16, fontWeight: 700 }}>{step?.text || "Pick one bullet and expand it"}</div>
+        <div style={{ ...T.subtitle, color: LIGHT_SURFACE_TEXT, marginBottom: note ? 12 : 16, fontWeight: 700 }}>{step?.text || "Pick one bullet and expand it"}</div>
         {note ? (
-          <div style={{ ...T.small, color: "var(--n7)", marginBottom: 16, lineHeight: 1.5, fontStyle: "italic" }}>{note}</div>
+          <div style={{ ...T.small, color: LIGHT_SURFACE_TEXT, marginBottom: 16, lineHeight: 1.5, fontStyle: "italic" }}>{note}</div>
         ) : null}
         <BtnPrimary onClick={next}>Continue where you left off</BtnPrimary>
       </Card>
@@ -1537,10 +1553,10 @@ function ReturnShortScreen({ next, onExit }) {
         ))}
         <div style={{ ...T.hint, fontSize: 12, marginLeft: 6, whiteSpace: "nowrap" }}>3 days showing up</div>
       </div>
-      <Card style={{ background: C.success100, borderRadius: 16, marginBottom: 32 }}>
+      <Card style={lightCardStyle({ background: C.success100, borderRadius: 16, marginBottom: 32 })}>
         <div style={{ ...T.label, color: C.success500, marginBottom: 6 }}>Earlier today</div>
-        <div style={{ ...T.subtitle, color: "var(--n9)", fontWeight: 700, marginBottom: 4 }}>Finished everything on your list</div>
-        <div style={{ ...T.hint }}>3 things done</div>
+        <div style={{ ...T.subtitle, color: LIGHT_SURFACE_TEXT, fontWeight: 700, marginBottom: 4 }}>Finished everything on your list</div>
+        <div style={{ ...T.hint, color: LIGHT_SURFACE_TEXT }}>3 things done</div>
       </Card>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <BtnPrimary onClick={next}>What's next?</BtnPrimary>
@@ -1800,17 +1816,17 @@ function MomentumScreen({ next, onExit, completedSteps, onMarkDone, task }) {
       <div style={{ ...T.heading, color: "var(--n9)", marginBottom: 8 }}>Look at what's adding up.</div>
       <div style={{ ...T.small, color: "var(--n7)", marginBottom: 20, lineHeight: 1.6 }}>Each small step connects to something bigger.</div>
 
-      <Card style={{ background: C.accent100, marginBottom: 14 }}>
+      <Card style={lightCardStyle({ background: C.accent100, marginBottom: 14 })}>
         <div style={{ ...T.label, color: C.accent500, marginBottom: 12 }}>{task || "Your project"}</div>
         {steps.length === 0 && (
-          <div style={{ ...T.hint, color: C.neutral300, marginBottom: 0 }}>Your completed steps will appear here.</div>
+          <div style={{ ...T.hint, color: LIGHT_SURFACE_TEXT, marginBottom: 0 }}>Your completed steps will appear here.</div>
         )}
         {steps.map((s, i) => (
           <div key={i} style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: i < steps.length - 1 ? 8 : 0 }}>
             <div style={{ width: 18, height: 18, borderRadius: "50%", background: C.accent500, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
               <svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4L4 7L9 1" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
             </div>
-            <span style={{ ...T.small, color: "var(--n9)" }}>{s}</span>
+            <span style={{ ...T.small, color: LIGHT_SURFACE_TEXT }}>{s}</span>
           </div>
         ))}
         {completedSteps?.length > 0 && (
@@ -1821,12 +1837,12 @@ function MomentumScreen({ next, onExit, completedSteps, onMarkDone, task }) {
         )}
       </Card>
 
-      <Card style={{ background: "#F0FAF0", border: "1px solid #D4EAD4", marginBottom: 16 }}>
+      <Card style={lightCardStyle({ background: "#F0FAF0", border: "1px solid #D4EAD4", marginBottom: 16 })}>
         <div style={{ ...T.label, color: C.warning500, marginBottom: 6 }}>Coming back to this</div>
         {task ? (
-          <div style={{ ...T.small, color: "var(--n9)", fontWeight: 600, marginBottom: 8, lineHeight: 1.4 }}>{task}</div>
+          <div style={{ ...T.small, color: LIGHT_SURFACE_TEXT, fontWeight: 600, marginBottom: 8, lineHeight: 1.4 }}>{task}</div>
         ) : null}
-        <div style={{ ...T.small, color: "var(--n9)" }}>You've started this before. Want to try a smaller first step?</div>
+        <div style={{ ...T.small, color: LIGHT_SURFACE_TEXT }}>You've started this before. Want to try a smaller first step?</div>
       </Card>
 
       {markDoneMsg ? (
@@ -2018,6 +2034,7 @@ export default function NudgeApp() {
       fontFamily: "Inter, sans-serif",
       position: "relative",
       boxSizing: "border-box",
+      overflow: "hidden",
       "--n9": c9(isDark),
       "--n7": c7(isDark),
     }}>
