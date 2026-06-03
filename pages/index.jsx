@@ -35,6 +35,19 @@ const IsDarkContext = createContext(false);
 function c9(isDark) { return isDark ? "#F0EEF8" : C.neutral900; }
 function c7(isDark) { return isDark ? "#AAAAAA" : C.neutral700; }
 
+function pillBackground(isDark, selected) {
+  return selected ? C.accent100 : (isDark ? "#2D2A45" : C.neutral50);
+}
+function pillTextColor(isDark, selected) {
+  return selected ? C.accent500 : (isDark ? "#F0EEF8" : C.neutral700);
+}
+function pillLabelColor(isDark, selected, lightUnselected = C.neutral900) {
+  return selected ? C.accent500 : (isDark ? "#F0EEF8" : lightUnselected);
+}
+function pillHintColor(isDark, selected) {
+  return selected ? C.accent500 : (isDark ? "#F0EEF8" : C.neutral300);
+}
+
 // Typography scale
 const T = {
   label:   { fontFamily: "Inter", fontWeight: 600, fontSize: 14, letterSpacing: "0.08em", textTransform: "uppercase" },
@@ -489,6 +502,7 @@ function OnboardingScreen({ next, tasks, setTasks }) {
 }
 
 function SetupScreen({ next, back, setDefaultEnergy, setDefaultTime }) {
+  const isDark = useContext(IsDarkContext);
   const [slot, setSlot] = useState(null);
   const [duration, setDuration] = useState(null);
   const [energy, setEnergy] = useState(null);
@@ -508,8 +522,8 @@ function SetupScreen({ next, back, setDefaultEnergy, setDefaultTime }) {
           <button key={s} onClick={() => setSlot(s)} style={{
             padding: "14px", borderRadius: BTN_RADIUS,
             border: `1px solid ${slot === s ? C.accent500 : C.neutral200}`,
-            background: slot === s ? C.accent100 : C.neutral50,
-            color: slot === s ? C.accent500 : C.neutral700,
+            background: pillBackground(isDark, slot === s),
+            color: pillTextColor(isDark, slot === s),
             ...BTN_FONT, fontSize: 16, cursor: "pointer", fontFamily: "Inter",
           }}>{s}</button>
         ))}
@@ -523,8 +537,8 @@ function SetupScreen({ next, back, setDefaultEnergy, setDefaultTime }) {
           <button key={d} onClick={() => { setDuration(d); setDefaultTime(d); }} style={{
             flex: "1 1 auto", minWidth: 72, padding: "10px 12px", borderRadius: BTN_RADIUS,
             border: `1px solid ${duration === d ? C.accent500 : C.neutral200}`,
-            background: duration === d ? C.accent100 : C.neutral50,
-            color: duration === d ? C.accent500 : C.neutral700,
+            background: pillBackground(isDark, duration === d),
+            color: pillTextColor(isDark, duration === d),
             ...BTN_FONT, fontSize: 16, cursor: "pointer", fontFamily: "Inter",
           }}>{d}</button>
         ))}
@@ -542,12 +556,12 @@ function SetupScreen({ next, back, setDefaultEnergy, setDefaultTime }) {
           <button key={e.key} onClick={() => { setEnergy(e.key); setDefaultEnergy(e.key); }} style={{
             flex: 1, padding: "8px 0", borderRadius: BTN_RADIUS,
             border: `1px solid ${energy === e.key ? C.accent500 : C.neutral200}`,
-            background: energy === e.key ? C.accent100 : C.neutral50,
-            color: energy === e.key ? C.accent500 : C.neutral700,
+            background: pillBackground(isDark, energy === e.key),
+            color: pillTextColor(isDark, energy === e.key),
             cursor: "pointer", fontFamily: "Inter",
             display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
           }}>
-            {e.icon(energy === e.key ? C.accent500 : C.neutral300)}
+            {e.icon(energy === e.key ? C.accent500 : pillHintColor(isDark, false))}
             <span style={{ ...BTN_FONT, fontSize: 16 }}>{e.label}</span>
           </button>
         ))}
@@ -561,6 +575,7 @@ function SetupScreen({ next, back, setDefaultEnergy, setDefaultTime }) {
 }
 
 function ReadyScreen({ next, back, setGranularity }) {
+  const isDark = useContext(IsDarkContext);
   const [selected, setSelected] = useState("balanced");
   return (
     <>
@@ -624,13 +639,13 @@ function ReadyScreen({ next, back, setGranularity }) {
               <button key={o.key} onClick={() => { setSelected(o.key); setGranularity(o.key); }} style={{
                 flex: 1, padding: "14px 6px 12px", borderRadius: 16,
                 border: `1.5px solid ${selected === o.key ? C.accent500 : C.neutral200}`,
-                background: selected === o.key ? C.accent100 : C.neutral50,
+                background: pillBackground(isDark, selected === o.key),
                 cursor: "pointer", fontFamily: "Inter",
                 display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
               }}>
                 {o.illustration(selected === o.key)}
-                <span style={{ ...T.small, color: selected === o.key ? C.accent500 : C.neutral900, fontWeight: 600, fontSize: 14 }}>{o.label}</span>
-                <span style={{ ...T.hint, fontSize: 11, color: selected === o.key ? C.accent500 : C.neutral300 }}>{o.desc}</span>
+                <span style={{ ...T.small, color: pillLabelColor(isDark, selected === o.key), fontWeight: 600, fontSize: 14 }}>{o.label}</span>
+                <span style={{ ...T.hint, fontSize: 11, color: pillHintColor(isDark, selected === o.key) }}>{o.desc}</span>
               </button>
             ))}
           </div>
@@ -782,6 +797,7 @@ function SuggestionScreen({ next, onTooHard, onAnother, onSkip, onExit, task, st
 }
 
 function AllStepsScreen({ back, steps, stepIndex, onPick, task, loading, stepLinks, onSetStepLink }) {
+  const isDark = useContext(IsDarkContext);
   const [linkEditingIndex, setLinkEditingIndex] = useState(null);
   const [linkDraft, setLinkDraft] = useState("");
 
@@ -842,7 +858,7 @@ function AllStepsScreen({ back, steps, stepIndex, onPick, task, loading, stepLin
             </div>
             {/* Card */}
             <div onClick={() => onPick(i)} style={{
-              flex: 1, background: i === stepIndex ? C.accent100 : C.neutral50,
+              flex: 1, background: pillBackground(isDark, i === stepIndex),
               border: `1px solid ${i === stepIndex ? C.accent500 : C.neutral200}`,
               borderRadius: CARD_RADIUS, padding: "14px 16px",
               cursor: "pointer", opacity: i < stepIndex ? 0.5 : 1,
@@ -1031,6 +1047,7 @@ function SimplifyScreen({ next, onStillTooMuch, step }) {
 }
 
 function PauseScreen({ onSaveAndPause, onComeBackLater, onResume }) {
+  const isDark = useContext(IsDarkContext);
   const [selected, setSelected] = useState(null);
   const [note, setNote] = useState("");
   const pausePayload = () => ({ progress: selected || "", note: note.trim() });
@@ -1050,12 +1067,12 @@ function PauseScreen({ onSaveAndPause, onComeBackLater, onResume }) {
           <button key={o.label} onClick={() => setSelected(o.label)} style={{
             padding: "14px 18px", borderRadius: BTN_RADIUS,
             border: `1px solid ${selected === o.label ? C.accent500 : C.neutral200}`,
-            background: selected === o.label ? C.accent100 : C.neutral50,
-            color: selected === o.label ? C.accent500 : C.neutral700,
+            background: pillBackground(isDark, selected === o.label),
+            color: pillTextColor(isDark, selected === o.label),
             ...BTN_FONT, cursor: "pointer", fontFamily: "Inter",
             display: "flex", alignItems: "center", gap: 12,
           }}>
-            {o.icon(selected === o.label ? C.accent500 : C.neutral300)}
+            {o.icon(selected === o.label ? C.accent500 : pillHintColor(isDark, false))}
             {o.label}
           </button>
         ))}
@@ -1344,6 +1361,7 @@ function PausedConfirmScreen({ next }) {
 }
 
 function SwitchTaskScreen({ tasks, onPick, onAdd, onBack }) {
+  const isDark = useContext(IsDarkContext);
   const [adding, setAdding] = useState(false);
   const [input, setInput] = useState("");
   const [newTasks, setNewTasks] = useState([]);
@@ -1371,12 +1389,12 @@ function SwitchTaskScreen({ tasks, onPick, onAdd, onBack }) {
         {tasks.map((t, i) => (
           <button key={i} onClick={() => onPick(t)} style={{
             padding: "16px 18px", borderRadius: CARD_RADIUS,
-            border: `1px solid ${C.neutral200}`, background: C.neutral50,
+            border: `1px solid ${C.neutral200}`, background: pillBackground(isDark, false),
             display: "flex", alignItems: "center", gap: 12,
             cursor: "pointer", fontFamily: "Inter", textAlign: "left",
           }}>
             <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.accent300, flexShrink: 0 }} />
-            <span style={{ ...T.small, color: "var(--n9)" }}>{t}</span>
+            <span style={{ ...T.small, color: pillLabelColor(isDark, false, "var(--n9)") }}>{t}</span>
           </button>
         ))}
 
@@ -1410,7 +1428,7 @@ function SwitchTaskScreen({ tasks, onPick, onAdd, onBack }) {
         ) : (
           <div style={{
             padding: "14px 18px", borderRadius: CARD_RADIUS,
-            border: `1.5px solid ${C.accent500}`, background: C.neutral50,
+            border: `1.5px solid ${C.accent500}`, background: pillBackground(isDark, false),
             display: "flex", alignItems: "center", gap: 12,
           }}>
             <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.accent300, flexShrink: 0 }} />
@@ -1449,6 +1467,7 @@ function SwitchTaskScreen({ tasks, onPick, onAdd, onBack }) {
 }
 
 function ReturnPausedScreen({ next, onFresh, onPickTask, step, task, note, pauseProgress, tasks }) {
+  const isDark = useContext(IsDarkContext);
   const chipTasks = (tasks || []).slice(0, 3);
   const chipLabel = (name) => {
     const max = 22;
@@ -1483,16 +1502,16 @@ function ReturnPausedScreen({ next, onFresh, onPickTask, step, task, note, pause
             onClick={() => onPickTask(t)}
             style={{
               padding: "10px 18px", borderRadius: BTN_RADIUS,
-              border: `1px solid ${C.neutral200}`, background: C.neutral50,
-              color: "var(--n7)", ...BTN_FONT, fontSize: 16,
+              border: `1px solid ${C.neutral200}`, background: pillBackground(isDark, false),
+              color: pillTextColor(isDark, false), ...BTN_FONT, fontSize: 16,
               cursor: "pointer", fontFamily: "Inter",
             }}
           >{chipLabel(t)}</button>
         ))}
         <button onClick={onFresh} style={{
           padding: "10px 18px", borderRadius: BTN_RADIUS,
-          border: `1px solid ${C.neutral200}`, background: C.neutral50,
-          color: "var(--n7)", ...BTN_FONT, fontSize: 16,
+          border: `1px solid ${C.neutral200}`, background: pillBackground(isDark, false),
+          color: pillTextColor(isDark, false), ...BTN_FONT, fontSize: 16,
           cursor: "pointer", fontFamily: "Inter",
         }}>+ Add</button>
       </div>
