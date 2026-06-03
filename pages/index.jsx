@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useContext, createContext } from "react";
 
 // ── DESIGN TOKENS (from Figma inspect) ───────────────────────────────
 // Font: Inter throughout
-// Screen: 390×844, margin 24px left/right
+// Screen: full viewport width, margin 24px left/right
 // Grid: 4 col, margin 24, gutter 16
 
 // Color palette — approximated from Figma color styles
@@ -352,6 +352,7 @@ function Card({ children, style = {} }) {
       background: isDark ? "#252338" : C.neutral50,
       borderRadius: CARD_RADIUS,
       padding: CARD_PAD,
+      color: "#111111",
       boxShadow: "0 1px 3px rgba(100,90,180,0.08), 0 8px 24px rgba(100,90,180,0.06)",
       ...style,
     }}>{children}</div>
@@ -1989,39 +1990,31 @@ export default function NudgeApp() {
     <IsDarkContext.Provider value={isDark}>
     <div style={{
       minHeight: "100vh",
+      width: "100%",
+      maxWidth: "100%",
       display: "flex",
       flexDirection: "column",
-      alignItems: "center",
-      justifyContent: "center",
-      background: "#E0DDF0",
+      background: shellBackground,
       fontFamily: "Inter, sans-serif",
+      position: "relative",
+      boxSizing: "border-box",
+      "--n9": c9(isDark),
+      "--n7": c7(isDark),
     }}>
       <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
       <style>{`@keyframes drawCheck { from { stroke-dashoffset: 80; } to { stroke-dashoffset: 0; } }
 @keyframes ghostPulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }`}</style>
-
       <div style={{
-        width: "100%",
-        minHeight: "100vh",
+        flex: 1,
         display: "flex",
         flexDirection: "column",
-        background: shellBackground,
-        position: "relative",
-        "--n9": c9(isDark),
-        "--n7": c7(isDark),
+        padding: `16px ${SCREEN_H_PAD}px 40px`,
+        width: "100%",
+        maxWidth: "100%",
         boxSizing: "border-box",
+        minHeight: 0,
       }}>
-        <div style={{
-          flex: 1,
-          display: "flex",
-          flexDirection: "column",
-          padding: `16px ${SCREEN_H_PAD}px 40px`,
-          width: "100%",
-          boxSizing: "border-box",
-          minHeight: 0,
-        }}>
-          {screens[screen] || screens.splash}
-        </div>
+        {screens[screen] || screens.splash}
       </div>
     </div>
     </IsDarkContext.Provider>
