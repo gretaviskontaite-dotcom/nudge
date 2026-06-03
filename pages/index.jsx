@@ -75,6 +75,7 @@ const CARD_PAD = 16;
 const BTN_RADIUS = 94;
 const BTN_H = 51;
 const BTN_FONT = { fontFamily: "Inter", fontWeight: 600, fontSize: 18 };
+const BTN_LABEL = { ...BTN_FONT, fontSize: "18px", lineHeight: 1.2 };
 
 // ── ICONS ─────────────────────────────────────────────────────────────
 const ICONS = {
@@ -330,21 +331,37 @@ function BtnPrimary({ children, onClick, disabled }) {
 
 // Secondary button — no fill, Neutral/200 stroke, Neutral/700 text
 function BtnSecondary({ children, onClick, small, disabled }) {
+  const isDark = useContext(IsDarkContext);
   return (
-    <button onClick={disabled ? undefined : onClick} style={{
-      width: small ? undefined : "100%",
-      flex: small ? 1 : undefined,
-      height: BTN_H, borderRadius: BTN_RADIUS,
-      background: "transparent",
-      border: `1px solid ${C.neutral200}`,
-      cursor: disabled ? "default" : "pointer",
-      opacity: disabled ? 0.5 : 1,
-      ...BTN_FONT, color: "var(--n7)",
-      transition: "opacity 0.15s",
-    }}
+    <button
+      type="button"
+      onClick={disabled ? undefined : onClick}
+      style={{
+        width: small ? undefined : "100%",
+        flex: small ? 1 : undefined,
+        height: BTN_H,
+        borderRadius: BTN_RADIUS,
+        background: "transparent",
+        border: pillBorder(isDark, false),
+        cursor: disabled ? "default" : "pointer",
+        opacity: disabled ? 0.5 : 1,
+        padding: 0,
+        margin: 0,
+        boxSizing: "border-box",
+        appearance: "none",
+        WebkitAppearance: "none",
+        color: "var(--n7)",
+        transition: "opacity 0.15s",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        textAlign: "center",
+      }}
       onMouseEnter={e => !disabled && (e.currentTarget.style.opacity = "0.7")}
       onMouseLeave={e => (e.currentTarget.style.opacity = disabled ? "0.5" : "1")}
-    >{children}</button>
+    >
+      <span style={BTN_LABEL}>{children}</span>
+    </button>
   );
 }
 
@@ -1000,7 +1017,7 @@ function InProgressScreen({ onDone, onPause, onTooMuch, onDefer, step, resourceL
 
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <BtnPrimary onClick={onDone}>Done</BtnPrimary>
-        <BtnSecondary onClick={onTooMuch}>Too much?</BtnSecondary>
+        <BtnSecondary key="too-much" onClick={onTooMuch}>Too much?</BtnSecondary>
         {showDeferInput ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 4 }}>
             <div style={{ ...T.small, color: "var(--n7)" }}>What do you need first?</div>
@@ -1017,15 +1034,7 @@ function InProgressScreen({ onDone, onPause, onTooMuch, onDefer, step, resourceL
             <BtnPrimary onClick={() => deferDraft.trim() && onDefer(deferDraft.trim())}>Save & come back</BtnPrimary>
           </div>
         ) : (
-          <button
-            onClick={() => setShowDeferInput(true)}
-            style={{
-              width: "100%", height: 44, borderRadius: BTN_RADIUS,
-              background: "transparent", border: `1px solid ${C.neutral200}`,
-              cursor: "pointer", fontFamily: "Inter",
-              color: C.neutral500, fontSize: 14, fontWeight: 500,
-            }}
-          >Not ready yet</button>
+          <BtnSecondary key="not-ready" onClick={() => setShowDeferInput(true)}>Not ready yet</BtnSecondary>
         )}
       </div>
     </>
