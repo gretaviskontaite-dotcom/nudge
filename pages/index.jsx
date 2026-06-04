@@ -1252,9 +1252,12 @@ function HistoryScreen({ history, onBack }) {
   );
 }
 
-function HomeScreen({ onResume, tasks, setTasks, onHistory }) {
+function HomeScreen({ onResume, tasks, setTasks, onHistory, reason }) {
   const [input, setInput] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const isExit = reason === "exit";
+  const isDone = reason === "done";
+  const isList = !isExit && !isDone;
 
   useEffect(() => {
     setTasks(p => {
@@ -1277,9 +1280,12 @@ function HomeScreen({ onResume, tasks, setTasks, onHistory }) {
     <>
       {/* Header */}
       <div style={{ marginBottom: 28 }}>
-        <div style={{ ...T.hint, marginBottom: 4 }}>{"That's okay."}</div>
+        {isExit && <div style={{ ...T.hint, marginBottom: 4 }}>{"That's okay."}</div>}
+        {isDone && <div style={{ ...T.hint, marginBottom: 4 }}>{"Well done."}</div>}
         <div style={{ ...T.heading, color: "var(--n9)", marginBottom: 4 }}>Your list</div>
-        <div style={{ ...T.small, color: "var(--n7)" }}>{"Come back whenever you're ready."}</div>
+        <div style={{ ...T.small, color: "var(--n7)" }}>
+          {isList ? "What would you like to work on?" : "Come back whenever you're ready."}
+        </div>
         {tasks.length > 1 && (
           <div style={{ ...T.hint, marginTop: 8 }}>Tap a task to select it</div>
         )}
@@ -2153,8 +2159,10 @@ export default function NudgeApp() {
     } catch { /* ignore corrupt pause state */ }
   }, []);
 
+  const [homeReason, setHomeReason] = useState("list");
   const prevScreen = useRef(null);
   const go = s => { prevScreen.current = screen; setScreen(s); };
+  const goHome = (reason = "list") => { setHomeReason(reason); go("home"); };
   const task = tasks[0] || "Work on portfolio";
   const { steps, loading: stepsLoading } = useTaskBreakdown(task, defaultEnergy, defaultTime, granularity);
   const { recordSession, getInsights } = usePatternLearning();
@@ -2197,7 +2205,7 @@ export default function NudgeApp() {
     onboarding: <OnboardingScreen next={() => go("setup")} tasks={tasks} setTasks={setTasks} />,
     setup: <SetupScreen next={() => go("ready")} back={() => go("onboarding")} setDefaultEnergy={setDefaultEnergy} setDefaultTime={setDefaultTime} />,
     ready: <ReadyScreen next={() => go("suggestion")} back={() => go("setup")} setGranularity={setGranularity} />,
-    suggestion: <SuggestionScreen next={() => { if (currentStep) go("inprogress"); }} onTooHard={() => { if (currentStep) go("simplify"); }} onAnother={() => go("allsteps")} onSkip={() => setStepIndex(i => (steps.length ? (i + 1) % steps.length : 0))} onExit={() => go("home")} task={task} stepIndex={stepIndex} steps={steps} energy={defaultEnergy} loading={stepsLoading} deferredNote={deferredNote} onDismissDeferNote={() => setDeferredNote("")} />,
+    suggestion: <SuggestionScreen next={() => { if (currentStep) go("inprogress"); }} onTooHard={() => { if (currentStep) go("simplify"); }} onAnother={() => go("allsteps")} onSkip={() => setStepIndex(i => (steps.length ? (i + 1) % steps.length : 0))} onExit={() => goHome("exit")} task={task} stepIndex={stepIndex} steps={steps} energy={defaultEnergy} loading={stepsLoading} deferredNote={deferredNote} onDismissDeferNote={() => setDeferredNote("")} />,
     allsteps: <AllStepsScreen back={() => go("suggestion")} steps={steps} task={task} stepIndex={stepIndex} onPick={i => { setStepIndex(i); go("suggestion"); }} loading={stepsLoading} stepLinks={stepLinks} onSetStepLink={(i, url) => setStepLinks(p => ({ ...p, [i]: url }))} />,
     inprogress: <InProgressScreen step={currentStep} resourceLink={resourceLink} onDone={handleDone} onPause={() => { setPausedStep(currentStep); go("pause"); }} onTooMuch={() => go("simplify")} onDefer={(note) => { setDeferredNote(note); go("suggestion"); }} />,
     simplify: <SimplifyScreen next={() => go("inprogress")} onStillTooMuch={() => go("suggestion")} step={currentStep} />,
@@ -2207,14 +2215,15 @@ export default function NudgeApp() {
       onResume={() => go("inprogress")}
     />,
     home: <HomeScreen
+      reason={homeReason}
       onResume={(picked) => { setTasks([picked, ...tasks.filter(x => x !== picked)]); setStepIndex(0); go("suggestion"); }}
       tasks={tasks}
       setTasks={setTasks}
       onHistory={() => go("history")}
     />,
-    history: <HistoryScreen history={completedHistory} onBack={() => go("home")} />,
-    paused_confirm: <PausedConfirmScreen next={() => go("home")} />,
-    done: <DoneScreen next={() => go("home")} onMore={() => go("suggestion")} isLast={isLastStep} />,
+    history: <HistoryScreen history={completedHistory} onBack={() => goHome("list")} />,
+    paused_confirm: <PausedConfirmScreen next={() => goHome("done")} />,
+    done: <DoneScreen next={() => goHome("done")} onMore={() => go("suggestion")} isLast={isLastStep} />,
     return_paused: <ReturnPausedScreen
       next={() => go("inprogress")}
       onFresh={() => go("switch_task")}
@@ -2225,16 +2234,16 @@ export default function NudgeApp() {
       note={pausedNote}
       pauseProgress={pausedProgress}
     />,
-    switch_task: <SwitchTaskScreen tasks={tasks.length ? tasks : ["Work on portfolio", "Clean kitchen", "Baby sleep schedule"]} onPick={t => { setTasks([t, ...tasks.filter(x => x !== t)]); setStepIndex(0); go("suggestion"); }} onAdd={t => { setTasks(p => [t, ...p]); setStepIndex(0); go("suggestion"); }} onBack={() => go(prevScreen.current || "home")} />,
-    return_short: <ReturnShortScreen next={() => go("suggestion")} onExit={() => go("home")} />,
+    switch_task: <SwitchTaskScreen tasks={tasks.length ? tasks : ["Work on portfolio", "Clean kitchen", "Baby sleep schedule"]} onPick={t => { setTasks([t, ...tasks.filter(x => x !== t)]); setStepIndex(0); go("suggestion"); }} onAdd={t => { setTasks(p => [t, ...p]); setStepIndex(0); go("suggestion"); }} onBack={() => { const dest = prevScreen.current || "home"; if (dest === "home") setHomeReason("list"); go(dest); }} />,
+    return_short: <ReturnShortScreen next={() => go("suggestion")} onExit={() => goHome("list")} />,
     return_long: <ReturnLongScreen next={() => go("switch_task")} />,
-    pattern: <PatternScreen next={() => go("suggestion")} onExit={() => go("home")} completedCount={sessionCount} topEnergy={defaultEnergy} insights={getInsights()} />,
+    pattern: <PatternScreen next={() => go("suggestion")} onExit={() => goHome("done")} completedCount={sessionCount} topEnergy={defaultEnergy} insights={getInsights()} />,
     momentum: <MomentumScreen
       next={() => go("suggestion")}
-      onExit={() => go("home")}
+      onExit={() => goHome("done")}
       completedSteps={completedSteps}
       task={task}
-      onMarkDone={() => { setTasks(t => t.slice(1)); go("home"); }}
+      onMarkDone={() => { setTasks(t => t.slice(1)); goHome("done"); }}
     />,
   };
 
