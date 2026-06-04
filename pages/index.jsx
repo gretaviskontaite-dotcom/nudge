@@ -1066,7 +1066,7 @@ function InProgressScreen({ onDone, onPause, onTooMuch, onDefer, step, resourceL
           boxSizing: "border-box",
           flexDirection: "column", gap: 8,
         }}>
-          <div style={{ ...T.subtitle, color: "var(--n9)", fontSize: 14, lineHeight: 1.3 }}>{step?.text ?? "Your step is loading…"}</div>
+          <div style={{ ...T.subtitle, color: "var(--n9)", fontSize: 17, fontWeight: 600, lineHeight: 1.3, textAlign: "center" }}>{step?.text ?? "Your step is loading…"}</div>
           {resourceLink ? (
             <a
               href={resourceLink}
@@ -1097,15 +1097,18 @@ function InProgressScreen({ onDone, onPause, onTooMuch, onDefer, step, resourceL
           <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 4 }}>
             <div style={{ ...T.small, color: "var(--n7)" }}>What do you need first?</div>
             <input
+              className="nudge-defer-input"
               value={deferDraft}
               onChange={e => setDeferDraft(e.target.value)}
               placeholder="e.g. find the right document"
               style={{
-                border: `1px solid ${C.neutral200}`, borderRadius: 12,
+                border: `1.5px solid ${C.accent500}`, borderRadius: 12,
                 padding: "12px 14px", width: "100%", boxSizing: "border-box",
-                ...T.body, fontFamily: "Inter", color: "var(--n9)", background: C.neutral50,
+                ...T.body, fontFamily: "Inter", color: "var(--n9)",
+                background: isDark ? "#2D2A45" : C.neutral50,
               }}
             />
+            <style>{`.nudge-defer-input::placeholder { color: ${C.neutral300}; opacity: 1; }`}</style>
             <BtnPrimary onClick={() => deferDraft.trim() && onDefer(deferDraft.trim())}>Save & come back</BtnPrimary>
           </div>
         ) : (
@@ -2015,7 +2018,20 @@ function MomentumScreen({ next, onExit, completedSteps, onMarkDone, task }) {
 
 export default function NudgeApp() {
   const [isDark, setIsDark] = useState(false);
-  const [screen, setScreen] = useState("splash");
+  const [screen, setScreen] = useState(() => {
+    if (typeof window === "undefined") return "splash";
+    try {
+      const tasksRaw = localStorage.getItem("nudge_tasks");
+      const savedTasks = tasksRaw ? JSON.parse(tasksRaw) : [];
+      const hasTasks = Array.isArray(savedTasks) && savedTasks.length > 0;
+      if (!hasTasks) return "onboarding";
+      const saved = localStorage.getItem("nudge_screen");
+      if (!saved || saved === "splash" || saved === "onboarding") return "suggestion";
+      return saved;
+    } catch {
+      return "onboarding";
+    }
+  });
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -2025,13 +2041,45 @@ export default function NudgeApp() {
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);
   }, []);
-  const [tasks, setTasks] = useState([]);
-  const [defaultEnergy, setDefaultEnergy] = useState("low");
-  const [defaultTime, setDefaultTime] = useState("10 min");
-  const [stepIndex, setStepIndex] = useState(0);
-  const [sessionCount, setSessionCount] = useState(0);
-  const [completedSteps, setCompletedSteps] = useState([]);
-  const [granularity, setGranularity] = useState("balanced");
+  const [tasks, setTasks] = useState(() => {
+    if (typeof window === "undefined") return [];
+    try { return JSON.parse(localStorage.getItem("nudge_tasks")) || []; }
+    catch { return []; }
+  });
+  const [defaultEnergy, setDefaultEnergy] = useState(() => {
+    if (typeof window === "undefined") return "low";
+    try { return localStorage.getItem("nudge_energy") || "low"; }
+    catch { return "low"; }
+  });
+  const [defaultTime, setDefaultTime] = useState(() => {
+    if (typeof window === "undefined") return "10 min";
+    try { return localStorage.getItem("nudge_time") || "10 min"; }
+    catch { return "10 min"; }
+  });
+  const [stepIndex, setStepIndex] = useState(() => {
+    if (typeof window === "undefined") return 0;
+    try {
+      const v = JSON.parse(localStorage.getItem("nudge_step_index"));
+      return Number.isInteger(v) ? v : 0;
+    } catch { return 0; }
+  });
+  const [sessionCount, setSessionCount] = useState(() => {
+    if (typeof window === "undefined") return 0;
+    try {
+      const v = JSON.parse(localStorage.getItem("nudge_session_count"));
+      return Number.isInteger(v) ? v : 0;
+    } catch { return 0; }
+  });
+  const [completedSteps, setCompletedSteps] = useState(() => {
+    if (typeof window === "undefined") return [];
+    try { return JSON.parse(localStorage.getItem("nudge_completed_steps")) || []; }
+    catch { return []; }
+  });
+  const [granularity, setGranularity] = useState(() => {
+    if (typeof window === "undefined") return "balanced";
+    try { return localStorage.getItem("nudge_granularity") || "balanced"; }
+    catch { return "balanced"; }
+  });
   const [pausedStep, setPausedStep] = useState(null);
   const [pausedTaskName, setPausedTaskName] = useState("");
   const [pausedNote, setPausedNote] = useState("");
@@ -2050,6 +2098,46 @@ export default function NudgeApp() {
     if (typeof window === "undefined") return;
     localStorage.setItem("nudge_history", JSON.stringify(completedHistory));
   }, [completedHistory]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem("nudge_tasks", JSON.stringify(tasks));
+  }, [tasks]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem("nudge_step_index", JSON.stringify(stepIndex));
+  }, [stepIndex]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem("nudge_session_count", JSON.stringify(sessionCount));
+  }, [sessionCount]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem("nudge_energy", defaultEnergy);
+  }, [defaultEnergy]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem("nudge_time", defaultTime);
+  }, [defaultTime]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem("nudge_granularity", granularity);
+  }, [granularity]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem("nudge_completed_steps", JSON.stringify(completedSteps));
+  }, [completedSteps]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem("nudge_screen", screen);
+  }, [screen]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
