@@ -826,7 +826,8 @@ function SuggestionScreen({ next, onTooHard, onAnother, onSkip, onExit, task, st
         ) : (
           <Card style={{
             marginBottom: 28,
-            background: isDark ? "#2D2A45" : "linear-gradient(145deg, #FFFFFF 0%, #FAF9FF 100%)",
+            background: isDark ? "#2D2A45" : "linear-gradient(145deg, #FDFCF9 0%, #F5F0FF 60%, #FDF8F0 100%)",
+            transition: "background 0.8s ease",
             boxShadow: "0 2px 8px rgba(100,90,180,0.08), 0 16px 48px rgba(100,90,180,0.08)",
             border: isDark ? "1px solid rgba(124,111,205,0.2)" : "1px solid rgba(124,111,205,0.12)",
           }}>
@@ -896,6 +897,7 @@ function SuggestionScreen({ next, onTooHard, onAnother, onSkip, onExit, task, st
 
 function AllStepsScreen({ back, steps, stepIndex, onPick, task, loading, stepLinks, onSetStepLink }) {
   const isDark = useContext(IsDarkContext);
+  const stepDivider = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)";
   const [linkEditingIndex, setLinkEditingIndex] = useState(null);
   const [linkDraft, setLinkDraft] = useState("");
 
@@ -954,13 +956,13 @@ function AllStepsScreen({ back, steps, stepIndex, onPick, task, loading, stepLin
                 }} />
               )}
             </div>
-            {/* Card */}
+            {/* Step row */}
             <div onClick={() => onPick(i)} style={{
-              flex: 1, background: pillBackground(isDark, i === stepIndex),
-              border: pillBorder(isDark, i === stepIndex),
-              borderRadius: CARD_RADIUS, padding: "14px 16px",
-              cursor: "pointer", opacity: i < stepIndex ? 0.5 : 1,
-              marginBottom: 8,
+              flex: 1,
+              padding: "12px 0",
+              cursor: "pointer",
+              opacity: i < stepIndex ? 0.5 : 1,
+              borderBottom: i < steps.length - 1 ? `1px solid ${stepDivider}` : "none",
             }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
                 <div style={{ ...T.small, color: "var(--n9)", flex: 1, textDecoration: i < stepIndex ? "line-through" : "none" }}>{s.text}</div>
@@ -1248,6 +1250,8 @@ function HistoryScreen({ history, onBack }) {
 }
 
 function HomeScreen({ onResume, tasks, setTasks, onHistory }) {
+  const isDark = useContext(IsDarkContext);
+  const listDivider = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)";
   const [input, setInput] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
 
@@ -1281,10 +1285,10 @@ function HomeScreen({ onResume, tasks, setTasks, onHistory }) {
       </div>
 
       {/* Editable task list */}
-      <Card style={{ padding: 0, overflow: "hidden", marginBottom: 16 }}>
+      <div style={{ marginBottom: 16 }}>
         {tasks.length === 0 && (
           <div style={{
-            padding: "32px 20px", display: "flex", flexDirection: "column",
+            padding: "32px 0", display: "flex", flexDirection: "column",
             alignItems: "center", gap: 12, textAlign: "center",
           }}>
             <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
@@ -1302,7 +1306,6 @@ function HomeScreen({ onResume, tasks, setTasks, onHistory }) {
         <div style={{
           maxHeight: tasks.length >= 5 ? 240 : "none",
           overflowY: tasks.length >= 5 ? "auto" : "visible",
-          padding: `0 ${CARD_PAD}px`,
         }}>
           {tasks.map((t, i) => (
             <div key={i}>
@@ -1310,9 +1313,7 @@ function HomeScreen({ onResume, tasks, setTasks, onHistory }) {
                 onClick={() => setSelectedIndex(i)}
                 style={{
                   display: "flex", alignItems: "center", gap: 12,
-                  padding: "12px 8px",
-                  margin: "0 -8px",
-                  borderRadius: 12,
+                  padding: "14px 0",
                   cursor: "pointer",
                   border: `1.5px solid ${selectedIndex === i ? C.accent500 : "transparent"}`,
                   background: selectedIndex === i ? C.accent100 : "transparent",
@@ -1335,36 +1336,35 @@ function HomeScreen({ onResume, tasks, setTasks, onHistory }) {
                   }}
                 >✕</button>
               </div>
-              <Divider />
+              <div style={{ height: 1, background: listDivider }} />
             </div>
           ))}
         </div>
 
         {/* Inline add field */}
-        <div style={{ padding: `0 ${CARD_PAD}px` }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0" }}>
-            <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.neutral200, flexShrink: 0 }} />
-            <input
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && addTask()}
-              placeholder="Add something…"
-              style={{
-                border: "none", outline: "none", flex: 1,
-                ...T.body, color: "var(--n9)",
-                background: "transparent", fontFamily: "Inter",
-              }}
-            />
-            {input.trim() && (
-              <button onClick={addTask} style={{
-                background: C.accent500, color: C.neutral50, border: "none",
-                borderRadius: 8, padding: "6px 12px", fontSize: 13,
-                fontWeight: 600, cursor: "pointer", fontFamily: "Inter", flexShrink: 0,
-              }}>Add</button>
-            )}
-          </div>
+        {tasks.length > 0 && <div style={{ height: 1, background: listDivider }} />}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 0" }}>
+          <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.neutral200, flexShrink: 0 }} />
+          <input
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && addTask()}
+            placeholder="Add something…"
+            style={{
+              border: "none", outline: "none", flex: 1,
+              ...T.body, color: "var(--n9)",
+              background: "transparent", fontFamily: "Inter",
+            }}
+          />
+          {input.trim() && (
+            <button onClick={addTask} style={{
+              background: C.accent500, color: C.neutral50, border: "none",
+              borderRadius: 8, padding: "6px 12px", fontSize: 13,
+              fontWeight: 600, cursor: "pointer", fontFamily: "Inter", flexShrink: 0,
+            }}>Add</button>
+          )}
         </div>
-      </Card>
+      </div>
 
       <BtnPrimary
         onClick={() => tasks[selectedIndex] && onResume(tasks[selectedIndex])}
@@ -1806,6 +1806,8 @@ function buildRealInsightCards(insights) {
 }
 
 function PatternScreen({ next, onExit, completedCount, topEnergy, insights }) {
+  const isDark = useContext(IsDarkContext);
+  const curveOpacity = isDark ? 0.08 : undefined;
   const useRealData = insights?.totalSessions >= 3;
   const insightSet = useRealData ? buildRealInsightCards(insights) : INSIGHT_LIBRARY;
   const insightCount = insightSet.length;
@@ -1865,70 +1867,76 @@ function PatternScreen({ next, onExit, completedCount, topEnergy, insights }) {
   };
 
   return (
-    <>
-      <Label color={C.success500}>Something I've noticed</Label>
-      <div
-        onTouchStart={onInsightTouchStart}
-        onTouchEnd={onInsightTouchEnd}
-        style={{ touchAction: "pan-y" }}
-      >
-        <div style={{ ...T.heading, color: "var(--n9)", lineHeight: 1.3, marginBottom: 8 }}>
-          {insight.headline}
+    <div style={{ position: "relative" }}>
+      <svg width="390" height="300" viewBox="0 0 390 300" fill="none" style={{ position: "absolute", top: 0, left: 0, width: "100%", pointerEvents: "none", zIndex: 0 }}>
+        <ellipse cx="320" cy="80" rx="200" ry="160" fill="#EEE9FF" fillOpacity={curveOpacity ?? 0.4} />
+        <ellipse cx="60" cy="220" rx="150" ry="120" fill="#F0FFF8" fillOpacity={curveOpacity ?? 0.3} />
+      </svg>
+      <div style={{ position: "relative", zIndex: 1 }}>
+        <Label color={C.success500}>Something I've noticed</Label>
+        <div
+          onTouchStart={onInsightTouchStart}
+          onTouchEnd={onInsightTouchEnd}
+          style={{ touchAction: "pan-y" }}
+        >
+          <div style={{ ...T.heading, color: "var(--n9)", lineHeight: 1.3, marginBottom: 8 }}>
+            {insight.headline}
+          </div>
+          <div style={{ ...T.small, color: "var(--n7)", marginBottom: 24, lineHeight: 1.6 }}>
+            {insight.body}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 28 }}>
+            {insight.items.map(item => (
+              <Card key={item.label} style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                <div style={{
+                  width: 40, height: 40, borderRadius: 12, background: C.accent100,
+                  display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                }}>
+                  {(iconSvgs[item.iconKey] || iconSvgs.task)(C.accent500)}
+                </div>
+                <div>
+                  <div style={{ ...T.hint, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--n7)" }}>{item.label}</div>
+                  <div style={{ ...T.small, color: "var(--n9)", fontWeight: 600 }}>{item.value}</div>
+                </div>
+              </Card>
+            ))}
+          </div>
         </div>
-        <div style={{ ...T.small, color: "var(--n7)", marginBottom: 24, lineHeight: 1.6 }}>
-          {insight.body}
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 28 }}>
-          {insight.items.map(item => (
-            <Card key={item.label} style={{ display: "flex", alignItems: "center", gap: 16 }}>
-              <div style={{
-                width: 40, height: 40, borderRadius: 12, background: C.accent100,
-                display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
-              }}>
-                {(iconSvgs[item.iconKey] || iconSvgs.task)(C.accent500)}
-              </div>
-              <div>
-                <div style={{ ...T.hint, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--n7)" }}>{item.label}</div>
-                <div style={{ ...T.small, color: "var(--n9)", fontWeight: 600 }}>{item.value}</div>
-              </div>
-            </Card>
+
+        {/* Pagination dots — library only when fewer than 3 recorded sessions */}
+        {insightCount > 1 && (
+        <div style={{ display: "flex", gap: 2, justifyContent: "center", marginBottom: 12 }}>
+          {insightSet.map((_, i) => (
+            <button
+              key={i}
+              type="button"
+              aria-label={`Insight ${i + 1} of ${insightCount}`}
+              aria-current={i === insightIndex ? "true" : undefined}
+              onClick={() => setInsightIndex(i)}
+              style={{
+                width: 44, height: 44, padding: 0, border: "none", background: "transparent",
+                cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
+              }}
+            >
+              <span style={{
+                display: "block",
+                width: i === insightIndex ? 16 : 6, height: 6, borderRadius: 6,
+                background: i === insightIndex ? C.accent500 : C.neutral200,
+                transition: "all 0.3s",
+              }} />
+            </button>
           ))}
         </div>
-      </div>
+        )}
 
-      {/* Pagination dots — library only when fewer than 3 recorded sessions */}
-      {insightCount > 1 && (
-      <div style={{ display: "flex", gap: 2, justifyContent: "center", marginBottom: 12 }}>
-        {insightSet.map((_, i) => (
-          <button
-            key={i}
-            type="button"
-            aria-label={`Insight ${i + 1} of ${insightCount}`}
-            aria-current={i === insightIndex ? "true" : undefined}
-            onClick={() => setInsightIndex(i)}
-            style={{
-              width: 44, height: 44, padding: 0, border: "none", background: "transparent",
-              cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
-            }}
-          >
-            <span style={{
-              display: "block",
-              width: i === insightIndex ? 16 : 6, height: 6, borderRadius: 6,
-              background: i === insightIndex ? C.accent500 : C.neutral200,
-              transition: "all 0.3s",
-            }} />
-          </button>
-        ))}
+        <div style={{ ...T.hint, textAlign: "center", marginBottom: 20, lineHeight: 1.5 }}>
+          {"I'll use this to suggest better-fitting tasks."}
+        </div>
+        <BtnPrimary onClick={next}>Got it</BtnPrimary>
+        <div style={{ height: 12 }} />
+        <BtnSecondary onClick={onExit}>Done for now</BtnSecondary>
       </div>
-      )}
-
-      <div style={{ ...T.hint, textAlign: "center", marginBottom: 20, lineHeight: 1.5 }}>
-        {"I'll use this to suggest better-fitting tasks."}
-      </div>
-      <BtnPrimary onClick={next}>Got it</BtnPrimary>
-      <div style={{ height: 12 }} />
-      <BtnSecondary onClick={onExit}>Done for now</BtnSecondary>
-    </>
+    </div>
   );
 }
 
