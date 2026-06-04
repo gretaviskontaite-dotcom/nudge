@@ -10,18 +10,18 @@ const C = {
   // Accent
   accent900: "#2D2361",
   accent700: "#4D3DB5",
-  accent500: "#7C6FCD", // primary purple — buttons, labels
+  accent500: "#8070C8", // primary purple — buttons, labels
   accent300: "#A89FDE",
   accent200: "#C8C0E8",
   accent100: "#EEE9FF", // soft bg — small buttons, cards
   // Neutral
-  neutral900: "#111111", // headings
-  neutral700: "#3D3D3D", // subtitle
+  neutral900: "#2A2826", // headings
+  neutral700: "#4A4744", // subtitle
   neutral500: "#6B6B6B",
-  neutral300: "#AAAAAA", // hints, placeholders
+  neutral300: "#6E6B66", // hints, placeholders
   neutral200: "#DDDDDD", // ghost button border
-  neutral100: "#F2F1F6", // card bg (Neutral/50 ≈ white, Neutral/100 ≈ off-white bg)
-  neutral50:  "#FFFFFF", // card bg, button text on primary
+  neutral100: "#F7F6F2", // card bg (Neutral/50 ≈ white, Neutral/100 ≈ off-white bg)
+  neutral50:  "#FDFCF9", // card bg, button text on primary
   // Success
   success500: "#6BBF9A",
   success100: "#E6F7F0",
@@ -239,21 +239,94 @@ function useTaskBreakdown(task, energy, timeAvailable, granularity) {
   return { steps, loading, error };
 }
 
-function usePatternLearning() {
-  const history = useRef([]);
+const NUDGE_SESSION_HISTORY_KEY = "nudge_session_history";
 
-  const recordSession = (task, energy, stepIndex, stepsTotal) => {
-    history.current.push({ task, energy, stepIndex, stepsTotal, completedAt: Date.now() });
+function loadNudgeSessionHistory() {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(NUDGE_SESSION_HISTORY_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function usePatternLearning() {
+  const history = useRef(loadNudgeSessionHistory());
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    history.current = loadNudgeSessionHistory();
+  }, []);
+
+  const recordSession = (task, energy, stepIndex, stepsTotal, timeSlot) => {
+    history.current.push({
+      task,
+      energy,
+      stepIndex,
+      stepsTotal,
+      timeSlot: timeSlot || null,
+      completedAt: Date.now(),
+    });
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.setItem(NUDGE_SESSION_HISTORY_KEY, JSON.stringify(history.current));
+    } catch { /* ignore quota / private mode */ }
   };
 
   const getInsights = () => {
     if (history.current.length < 2) return null;
-    const energyCounts = history.current.reduce((acc, s) => {
-      acc[s.energy] = (acc[s.energy] || 0) + 1; return acc;
+    const sessions = history.current;
+
+    const energyCounts = sessions.reduce((acc, s) => {
+      acc[s.energy] = (acc[s.energy] || 0) + 1;
+      return acc;
     }, {});
     const topEnergy = Object.entries(energyCounts).sort((a, b) => b[1] - a[1])[0]?.[0];
-    const completedTasks = history.current.filter(s => s.stepIndex === s.stepsTotal - 1);
-    return { topEnergy, completedCount: completedTasks.length, totalSessions: history.current.length };
+
+    const completedSessions = sessions.filter(
+      s => s.stepsTotal > 0 && s.stepIndex === s.stepsTotal - 1
+    );
+
+    const taskCounts = sessions.reduce((acc, s) => {
+      if (s.task) acc[s.task] = (acc[s.task] || 0) + 1;
+      return acc;
+    }, {});
+    const topTaskEntry = Object.entries(taskCounts).sort((a, b) => b[1] - a[1])[0];
+
+    const completedTaskCounts = completedSessions.reduce((acc, s) => {
+      if (s.task) acc[s.task] = (acc[s.task] || 0) + 1;
+      return acc;
+    }, {});
+    const topCompletedTaskEntry = Object.entries(completedTaskCounts).sort((a, b) => b[1] - a[1])[0];
+
+    const avgStepCompletion = sessions.reduce((sum, s) => {
+      const stepsDone = s.stepsTotal > 0
+        ? Math.min(s.stepIndex + 1, s.stepsTotal)
+        : s.stepIndex + 1;
+      return sum + stepsDone;
+    }, 0) / sessions.length;
+
+    const timeSlotCounts = sessions.reduce((acc, s) => {
+      if (s.timeSlot) acc[s.timeSlot] = (acc[s.timeSlot] || 0) + 1;
+      return acc;
+    }, {});
+    const topTimeSlotEntry = Object.entries(timeSlotCounts).sort((a, b) => b[1] - a[1])[0];
+
+    return {
+      topEnergy,
+      completedCount: completedSessions.length,
+      totalSessions: sessions.length,
+      topTask: topTaskEntry?.[0] ?? null,
+      topTaskCount: topTaskEntry?.[1] ?? 0,
+      topCompletedTask: topCompletedTaskEntry?.[0] ?? null,
+      topCompletedTaskCount: topCompletedTaskEntry?.[1] ?? 0,
+      avgStepCompletion: Math.round(avgStepCompletion * 10) / 10,
+      topTimeSlot: topTimeSlotEntry?.[0] ?? null,
+      topTimeSlotCount: topTimeSlotEntry?.[1] ?? 0,
+    };
   };
 
   return { recordSession, getInsights };
@@ -433,7 +506,7 @@ function SplashScreen({ next }) {
           boxShadow: `0 8px 32px ${C.accent500}55`,
           color: C.neutral50, fontSize: 36, fontWeight: 700,
         }}>›</div>
-        <div style={{ ...T.heading, fontSize: 32, color: "var(--n9)" }}>Nudge</div>
+        <div style={{ ...T.heading, fontFamily: "'DM Serif Display', serif", fontSize: 32, color: "var(--n9)" }}>Nudge</div>
         <div style={{ ...T.hint }}>one small step at a time</div>
       </div>
     </>
@@ -448,7 +521,7 @@ function OnboardingScreen({ next, tasks, setTasks }) {
     <>
       <Dots total={3} active={0} />
       <Label>Welcome</Label>
-      <div style={{ ...T.heading, color: "var(--n9)", marginBottom: 8 }}>What's weighing on you right now?</div>
+      <div style={{ ...T.heading, fontFamily: "'DM Serif Display', serif", color: "var(--n9)", marginBottom: 8 }}>What's weighing on you right now?</div>
       <div style={{ ...T.small, color: "var(--n7)", marginBottom: 20 }}>Add one thing at a time.</div>
 
       <Card style={{ marginBottom: 12, gap: 0, padding: 0, overflow: "hidden" }}>
@@ -1079,7 +1152,7 @@ function PauseScreen({ onSaveAndPause, onComeBackLater, onResume }) {
   return (
     <>
       <Label>Pause</Label>
-      <div style={{ ...T.heading, color: "var(--n9)", marginBottom: 4 }}>Life happened.</div>
+      <div style={{ ...T.heading, fontFamily: "'DM Serif Display', serif", color: "var(--n9)", marginBottom: 4 }}>Life happened.</div>
       <div style={{ ...T.small, color: "var(--n7)", marginBottom: 24 }}>{"That's okay. Where did you get to?"}</div>
 
       <div style={{ ...T.small, color: "var(--n7)", marginBottom: 12 }}>What did you manage?</div>
@@ -1346,7 +1419,7 @@ function DoneScreen({ next, onMore, isLast }) {
         }}>
           {ICONS.checkAnimated(C.success500)}
         </div>
-        <div style={{ ...T.heading, color: "var(--n9)" }}>Small step taken.</div>
+        <div style={{ ...T.heading, fontFamily: "'DM Serif Display', serif", color: "var(--n9)" }}>Small step taken.</div>
         <div style={{ ...T.subtitle, color: "var(--n7)" }}>That's real progress.</div>
         <div style={{ ...T.hint, color: C.neutral300, marginTop: 4, lineHeight: 1.4 }}>You started. That's the hardest part.</div>
         {isLast && (
@@ -1604,7 +1677,7 @@ function ReturnLongScreen({ next }) {
           <circle cx="24" cy="40" r="1" fill={C.accent200}/>
         </svg>
 
-        <div style={{ ...T.heading, color: "var(--n9)", marginBottom: 16 }}>
+        <div style={{ ...T.heading, fontFamily: "'DM Serif Display', serif", color: "var(--n9)", marginBottom: 16 }}>
           {"It's been a while."}
         </div>
         <div style={{ ...T.subtitle, color: "var(--n7)", lineHeight: 1.8, marginBottom: 12 }}>
@@ -1699,23 +1772,61 @@ const INSIGHT_LIBRARY = [
   },
 ];
 
+function formatEnergyLabel(energy) {
+  if (!energy) return "Medium";
+  return energy.charAt(0).toUpperCase() + energy.slice(1);
+}
+
+function truncateInsightText(text, max = 32) {
+  if (!text) return "Your tasks";
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+function buildRealInsightCards(insights) {
+  const energy = formatEnergyLabel(insights.topEnergy);
+  const completed = insights.completedCount ?? 0;
+  const sessions = insights.totalSessions ?? 0;
+  const topTask = truncateInsightText(insights.topTask);
+  const taskSessions = insights.topTaskCount ?? 0;
+
+  return [{
+    id: "real_patterns",
+    headline: `${energy} energy is where you show up most.`,
+    body: `Across ${sessions} sessions, you've finished ${completed} ${completed === 1 ? "task" : "tasks"}. Here's what your history shows.`,
+    items: [
+      { label: "Top energy", value: `${energy} energy`, iconKey: "bolt" },
+      { label: "Tasks completed", value: String(completed), iconKey: "task" },
+      {
+        label: "Most worked on",
+        value: taskSessions > 1 ? `${topTask} (${taskSessions}×)` : topTask,
+        iconKey: "time",
+      },
+    ],
+  }];
+}
+
 function PatternScreen({ next, onExit, completedCount, topEnergy, insights }) {
-  // Rotate through insight library — in production, pick based on real data
-  const [insightIndex, setInsightIndex] = useState(() => Math.floor(Math.random() * INSIGHT_LIBRARY.length));
-  const insight = INSIGHT_LIBRARY[insightIndex];
+  const useRealData = insights?.totalSessions >= 3;
+  const insightSet = useRealData ? buildRealInsightCards(insights) : INSIGHT_LIBRARY;
+  const insightCount = insightSet.length;
+  const [insightIndex, setInsightIndex] = useState(() =>
+    useRealData ? 0 : Math.floor(Math.random() * INSIGHT_LIBRARY.length)
+  );
+  const insight = insightSet[insightIndex % insightCount];
   const touchStartX = useRef(null);
-  const insightCount = INSIGHT_LIBRARY.length;
 
   const goToInsight = (index) => {
+    if (insightCount <= 1) return;
     setInsightIndex((index + insightCount) % insightCount);
   };
 
   const onInsightTouchStart = (e) => {
+    if (insightCount <= 1) return;
     touchStartX.current = e.touches[0].clientX;
   };
 
   const onInsightTouchEnd = (e) => {
-    if (touchStartX.current == null) return;
+    if (insightCount <= 1 || touchStartX.current == null) return;
     const dx = e.changedTouches[0].clientX - touchStartX.current;
     touchStartX.current = null;
     if (dx < -50) goToInsight(insightIndex + 1);
@@ -1785,9 +1896,10 @@ function PatternScreen({ next, onExit, completedCount, topEnergy, insights }) {
         </div>
       </div>
 
-      {/* Pagination dots showing there are more insights */}
+      {/* Pagination dots — library only when fewer than 3 recorded sessions */}
+      {insightCount > 1 && (
       <div style={{ display: "flex", gap: 2, justifyContent: "center", marginBottom: 12 }}>
-        {INSIGHT_LIBRARY.map((_, i) => (
+        {insightSet.map((_, i) => (
           <button
             key={i}
             type="button"
@@ -1808,6 +1920,7 @@ function PatternScreen({ next, onExit, completedCount, topEnergy, insights }) {
           </button>
         ))}
       </div>
+      )}
 
       <div style={{ ...T.hint, textAlign: "center", marginBottom: 20, lineHeight: 1.5 }}>
         {"I'll use this to suggest better-fitting tasks."}
@@ -1983,7 +2096,7 @@ export default function NudgeApp() {
       { task, step: currentStep.text, completedAt: new Date().toISOString() },
       ...h,
     ]);
-    recordSession(task, defaultEnergy, stepIndex, steps.length);
+    recordSession(task, defaultEnergy, stepIndex, steps.length, defaultTime);
     const next = stepIndex + 1;
     const c = sessionCount + 1;
     setSessionCount(c);
@@ -2060,7 +2173,7 @@ export default function NudgeApp() {
       "--n9": c9(isDark),
       "--n7": c7(isDark),
     }}>
-      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+      <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
       <style>{`
 html, body {
   margin: 0;
