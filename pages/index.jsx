@@ -1250,8 +1250,6 @@ function HistoryScreen({ history, onBack }) {
 }
 
 function HomeScreen({ onResume, tasks, setTasks, onHistory }) {
-  const isDark = useContext(IsDarkContext);
-  const listDivider = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)";
   const [input, setInput] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
 
@@ -1285,10 +1283,10 @@ function HomeScreen({ onResume, tasks, setTasks, onHistory }) {
       </div>
 
       {/* Editable task list */}
-      <div style={{ marginBottom: 16 }}>
+      <Card style={{ marginBottom: 12, gap: 0, padding: 0, overflow: "hidden" }}>
         {tasks.length === 0 && (
           <div style={{
-            padding: "32px 0", display: "flex", flexDirection: "column",
+            padding: "32px 20px", display: "flex", flexDirection: "column",
             alignItems: "center", gap: 12, textAlign: "center",
           }}>
             <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
@@ -1306,6 +1304,7 @@ function HomeScreen({ onResume, tasks, setTasks, onHistory }) {
         <div style={{
           maxHeight: tasks.length >= 5 ? 240 : "none",
           overflowY: tasks.length >= 5 ? "auto" : "visible",
+          padding: `0 ${CARD_PAD}px`,
         }}>
           {tasks.map((t, i) => (
             <div key={i}>
@@ -1313,21 +1312,14 @@ function HomeScreen({ onResume, tasks, setTasks, onHistory }) {
                 onClick={() => setSelectedIndex(i)}
                 style={{
                   display: "flex", alignItems: "center", gap: 12,
-                  padding: "14px 0",
-                  cursor: "pointer",
-                  border: `1.5px solid ${selectedIndex === i ? C.accent500 : "transparent"}`,
-                  background: selectedIndex === i ? C.accent100 : "transparent",
+                  padding: "12px 0", cursor: "pointer",
                 }}
               >
                 <div style={{
                   width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
                   background: selectedIndex === i ? C.accent500 : C.accent300,
                 }} />
-                <span style={{
-                  ...T.body, flex: 1,
-                  color: selectedIndex === i ? C.neutral900 : C.neutral900,
-                  fontWeight: selectedIndex === i ? 600 : 400,
-                }}>{t}</span>
+                <span style={{ ...T.body, color: "var(--n9)", flex: 1 }}>{t}</span>
                 <button
                   onClick={(e) => { e.stopPropagation(); removeTask(i); }}
                   style={{
@@ -1336,35 +1328,35 @@ function HomeScreen({ onResume, tasks, setTasks, onHistory }) {
                   }}
                 >✕</button>
               </div>
-              <div style={{ height: 1, background: listDivider }} />
+              <Divider />
             </div>
           ))}
         </div>
 
-        {/* Inline add field */}
-        {tasks.length > 0 && <div style={{ height: 1, background: listDivider }} />}
-        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 0" }}>
-          <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.neutral200, flexShrink: 0 }} />
-          <input
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && addTask()}
-            placeholder="Add something…"
-            style={{
-              border: "none", outline: "none", flex: 1,
-              ...T.body, color: "var(--n9)",
-              background: "transparent", fontFamily: "Inter",
-            }}
-          />
-          {input.trim() && (
-            <button onClick={addTask} style={{
-              background: C.accent500, color: C.neutral50, border: "none",
-              borderRadius: 8, padding: "6px 12px", fontSize: 13,
-              fontWeight: 600, cursor: "pointer", fontFamily: "Inter", flexShrink: 0,
-            }}>Add</button>
-          )}
+        <div style={{ padding: `0 ${CARD_PAD}px` }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0" }}>
+            <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.neutral200, flexShrink: 0 }} />
+            <input
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && addTask()}
+              placeholder={tasks.length === 0 ? "Something you've been putting off…" : "Another thing…"}
+              style={{
+                border: "none", outline: "none", flex: 1,
+                ...T.body, color: "var(--n9)",
+                background: "transparent", fontFamily: "Inter",
+              }}
+            />
+            {input.trim() && (
+              <button onClick={addTask} style={{
+                background: C.accent500, color: C.neutral50, border: "none",
+                borderRadius: 8, padding: "6px 12px", fontSize: 13,
+                fontWeight: 600, cursor: "pointer", fontFamily: "Inter", flexShrink: 0,
+              }}>Add</button>
+            )}
+          </div>
         </div>
-      </div>
+      </Card>
 
       <BtnPrimary
         onClick={() => tasks[selectedIndex] && onResume(tasks[selectedIndex])}
