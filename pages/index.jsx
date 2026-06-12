@@ -1839,6 +1839,88 @@ function SimplifyScreen({ next, onStillTooMuch, step }) {
   );
 }
 
+const PAUSE_PROGRESS_OPTIONS = [
+  { label: "Barely started", fillLevel: 0.15 },
+  { label: "Started it", fillLevel: 0.35 },
+  { label: "Got halfway", fillLevel: 0.55 },
+];
+
+function pauseProgressLiquidPath(cx, cy, r, fillLevel) {
+  const level = cy + r - fillLevel * 2 * r;
+  const left = cx - r - 1;
+  const right = cx + r + 1;
+  const bottom = cy + r + 2;
+  let d = `M ${left} ${bottom} L ${right} ${bottom} L ${right} ${level}`;
+  for (let x = right; x >= left; x -= 3) {
+    const wy =
+      level +
+      Math.sin((x / 7) * Math.PI) * 0.7 +
+      Math.sin((x / 3.5) * Math.PI) * 0.28;
+    d += ` L ${x} ${wy}`;
+  }
+  d += " Z";
+  return d;
+}
+
+function PauseProgressIcon({ fillLevel, selected, isDark, clipId }) {
+  const size = 28;
+  const cx = 14;
+  const cy = 14;
+  const r = 11;
+  const ringColor = isDark ? "rgba(124,111,205,0.35)" : C.neutral200;
+  const liquidColor = selected
+    ? (isDark ? "#6FD0AC" : C.success500)
+    : (isDark ? "rgba(111,208,172,0.38)" : "rgba(107,191,154,0.42)");
+  const crestColor = selected
+    ? (isDark ? "rgba(168,230,205,0.85)" : "rgba(255,255,255,0.55)")
+    : (isDark ? "rgba(111,208,172,0.55)" : "rgba(107,191,154,0.55)");
+
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox={`0 0 ${size} ${size}`}
+      fill="none"
+      aria-hidden
+      style={{
+        flexShrink: 0,
+        transform: selected ? "scale(1.1)" : "scale(1)",
+        transformOrigin: "center center",
+        transition: "transform 160ms ease",
+      }}
+    >
+      <defs>
+        <clipPath id={clipId}>
+          <circle cx={cx} cy={cy} r={r} />
+        </clipPath>
+      </defs>
+      <circle cx={cx} cy={cy} r={r} stroke={ringColor} strokeWidth="1.5" />
+      <g clipPath={`url(#${clipId})`}>
+        <path d={pauseProgressLiquidPath(cx, cy, r, fillLevel)} fill={liquidColor} />
+        <path
+          d={(() => {
+            const level = cy + r - fillLevel * 2 * r;
+            const left = cx - r;
+            const right = cx + r;
+            let crest = `M ${left} ${level}`;
+            for (let x = left; x <= right; x += 3) {
+              const wy =
+                level +
+                Math.sin((x / 7) * Math.PI) * 0.7 +
+                Math.sin((x / 3.5) * Math.PI) * 0.28;
+              crest += ` L ${x} ${wy}`;
+            }
+            return crest;
+          })()}
+          stroke={crestColor}
+          strokeWidth="1.25"
+          strokeLinecap="round"
+        />
+      </g>
+    </svg>
+  );
+}
+
 function PauseScreen({ onSaveAndPause, onComeBackLater, onResume }) {
   const isDark = useContext(IsDarkContext);
   const [selected, setSelected] = useState(null);
@@ -1852,23 +1934,39 @@ function PauseScreen({ onSaveAndPause, onComeBackLater, onResume }) {
 
       <div style={{ ...T.small, color: "var(--n7)", marginBottom: 12 }}>What did you manage?</div>
       <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 24 }}>
-        {[
-          { label: "Started it", icon: ICONS.arcEmpty },
-          { label: "Got halfway", icon: ICONS.arcHalf },
-          { label: "Barely started", icon: ICONS.arcFull },
-        ].map(o => (
-          <button key={o.label} onClick={() => setSelected(o.label)} style={{
-            padding: "14px 18px", borderRadius: BTN_RADIUS,
-            border: pillBorder(isDark, selected === o.label),
-            background: pillBackground(isDark, selected === o.label),
-            color: pillTextColor(isDark, selected === o.label),
-            ...BTN_FONT, cursor: "pointer", fontFamily: "Inter",
-            display: "flex", alignItems: "center", gap: 12,
-          }}>
-            {o.icon(selected === o.label ? C.accent500 : pillHintColor(isDark, false))}
-            {o.label}
-          </button>
-        ))}
+        {PAUSE_PROGRESS_OPTIONS.map(o => {
+          const isSelected = selected === o.label;
+          return (
+            <button
+              key={o.label}
+              type="button"
+              onClick={() => setSelected(o.label)}
+              style={{
+                padding: "14px 18px",
+                borderRadius: BTN_RADIUS,
+                border: pillBorder(isDark, false),
+                background: pillBackground(isDark, false),
+                color: "var(--n7)",
+                fontFamily: "Inter",
+                fontSize: 18,
+                fontWeight: isSelected ? 600 : 400,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                textAlign: "left",
+              }}
+            >
+              <PauseProgressIcon
+                fillLevel={o.fillLevel}
+                selected={isSelected}
+                isDark={isDark}
+                clipId={`pause-progress-${o.label.replace(/\s+/g, "-").toLowerCase()}`}
+              />
+              {o.label}
+            </button>
+          );
+        })}
       </div>
 
       <div style={{ ...T.small, color: "var(--n7)", marginBottom: 8 }}>Next step? (optional)</div>
