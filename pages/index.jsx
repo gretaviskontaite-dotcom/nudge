@@ -1645,24 +1645,33 @@ function InProgressScreen({ onDone, onPause, onTooMuch, onDefer, step, resourceL
         }}>‖ Pause</button>
       </div>
 
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, minHeight: 0 }}>
-        <div style={{ width: "100%", flex: 1, display: "flex", alignItems: "center", justifyContent: "center", minHeight: 0 }}>
-        <GatherBloomCircle
-          sessionId={gatherSessionId}
-          stepText={step?.text}
-          loading={stepsLoading}
-          onComplete={onDone}
-          resourceLink={resourceLink}
-        />
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, width: "100%" }}>
+        <div style={{ flex: 1, minHeight: 0 }} />
+        <div style={{ width: "100%", flexShrink: 0, display: "flex", justifyContent: "center" }}>
+          <GatherBloomCircle
+            sessionId={gatherSessionId}
+            stepText={step?.text}
+            loading={stepsLoading}
+            onComplete={onDone}
+            resourceLink={resourceLink}
+          />
         </div>
-
-        <div style={{ textAlign: "center", minHeight: 40 }}>
-          <div style={{
-            ...T.small, color: C.accent500, fontWeight: 600, marginBottom: 6,
-          }}>
-            Take your time. No rush.
+        <div style={{
+          flex: 1,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          minHeight: 0,
+          width: "100%",
+        }}>
+          <div style={{ textAlign: "center" }}>
+            <div style={{
+              ...T.small, color: C.accent500, fontWeight: 600, marginBottom: 6,
+            }}>
+              Take your time. No rush.
+            </div>
+            <div style={{ ...T.hint }}>Focus on just this one thing.</div>
           </div>
-          <div style={{ ...T.hint }}>Focus on just this one thing.</div>
         </div>
       </div>
 
