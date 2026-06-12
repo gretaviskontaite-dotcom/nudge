@@ -1020,9 +1020,11 @@ function AllStepsScreen({ back, steps, stepIndex, onPick, task, loading, stepLin
 
 const GATHER_HOLD_MS = 850;
 const GATHER_CANVAS_W = 390;
-const GATHER_CANVAS_H = 330;
-const GATHER_CIRCLE_CY = 165;
-const GATHER_CIRCLE_R = 102;
+const GATHER_CANVAS_H = 368;
+const GATHER_CIRCLE_CY = GATHER_CANVAS_H / 2;
+const GATHER_CIRCLE_R = 130;
+const GATHER_TEXT_WIDTH = Math.round(GATHER_CIRCLE_R * 2 * 0.80);
+const GATHER_TEXT_MAX_H = Math.round(GATHER_CIRCLE_R * 1.55);
 
 const GATHER_THEME = {
   light: {
@@ -1102,18 +1104,18 @@ function getGatherTheme(isDark) {
 function gatherTaskTextStyle(text, theme) {
   const len = (text || "").length;
   const fontSize =
-    len <= 30 ? 18 :
-    len <= 55 ? 16 :
-    len <= 85 ? 14 :
-    len <= 120 ? 12.5 : 11;
+    len <= 30 ? 19 :
+    len <= 55 ? 17 :
+    len <= 85 ? 15 :
+    len <= 120 ? 13.5 : 12;
   return {
     margin: 0,
     position: "absolute",
     left: "50%",
     top: `${(GATHER_CIRCLE_CY / GATHER_CANVAS_H) * 100}%`,
     transform: "translate(-50%, -50%)",
-    width: 158,
-    maxHeight: 150,
+    width: GATHER_TEXT_WIDTH,
+    maxHeight: GATHER_TEXT_MAX_H,
     overflow: "hidden",
     fontSize,
     lineHeight: 1.4,
@@ -1224,7 +1226,7 @@ function GatherBloomCircle({ sessionId, stepText, loading, onComplete, resourceL
   const spawnBloom = () => {
     if (reduceMotion.current) return;
     const arr = [];
-    const cx = GATHER_CANVAS_W / 2, cy = GATHER_CIRCLE_CY, R = 106;
+    const cx = GATHER_CANVAS_W / 2, cy = GATHER_CIRCLE_CY, R = GATHER_CIRCLE_R + 4;
     for (let i = 0; i < 52; i++) {
       const spread = (Math.random() - 0.5) * 2;
       const a = -Math.PI / 2 + spread * spread * spread * 1.5;
@@ -1587,7 +1589,7 @@ function GatherBloomCircle({ sessionId, stepText, loading, onComplete, resourceL
             style={{
               position: "absolute",
               left: "50%",
-              top: `${((GATHER_CIRCLE_CY + 72) / GATHER_CANVAS_H) * 100}%`,
+              top: `${((GATHER_CIRCLE_CY + GATHER_CIRCLE_R * 0.55) / GATHER_CANVAS_H) * 100}%`,
               transform: "translateX(-50%)",
               color: C.accent500,
               fontSize: 13,
@@ -1634,7 +1636,7 @@ function InProgressScreen({ onDone, onPause, onTooMuch, onDefer, step, resourceL
 
   return (
     <>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 32 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <Label style={{ margin: 0 }}>In Progress</Label>
         <button onClick={onPause} style={{
           background: "none", border: "none", color: C.neutral500,
@@ -1643,7 +1645,8 @@ function InProgressScreen({ onDone, onPause, onTooMuch, onDefer, step, resourceL
         }}>‖ Pause</button>
       </div>
 
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 24 }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, minHeight: 0 }}>
+        <div style={{ width: "100%", flex: 1, display: "flex", alignItems: "center", justifyContent: "center", minHeight: 0 }}>
         <GatherBloomCircle
           sessionId={gatherSessionId}
           stepText={step?.text}
@@ -1651,8 +1654,9 @@ function InProgressScreen({ onDone, onPause, onTooMuch, onDefer, step, resourceL
           onComplete={onDone}
           resourceLink={resourceLink}
         />
+        </div>
 
-        <div style={{ textAlign: "center", minHeight: 44 }}>
+        <div style={{ textAlign: "center", minHeight: 40 }}>
           <div style={{
             ...T.small, color: C.accent500, fontWeight: 600, marginBottom: 6,
           }}>
