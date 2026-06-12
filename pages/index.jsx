@@ -1025,8 +1025,11 @@ function AllStepsScreen({ back, steps, stepIndex, onPick, task, loading, stepLin
 const GATHER_HOLD_MS = 850;
 const GATHER_CANVAS_W = 390;
 const GATHER_CANVAS_H = 368;
+const GATHER_CIRCLE_CX = GATHER_CANVAS_W / 2;
 const GATHER_CIRCLE_CY = GATHER_CANVAS_H / 2;
 const GATHER_CIRCLE_R = 130;
+const FOCUS_CAPTION_MIN_H = 52;
+const FOCUS_ACTIONS_H = BTN_H * 2 + 12;
 const GATHER_TEXT_WIDTH = Math.round(GATHER_CIRCLE_R * 2 * 0.80);
 const GATHER_TEXT_MAX_H = Math.round(GATHER_CIRCLE_R * 1.55);
 
@@ -1227,8 +1230,8 @@ function GatherBloomCircle({ sessionId, stepText, loading, phase, onPhaseChange,
       const targetAngle = Math.random() * Math.PI * 2;
       arr.push({
         x, y,
-        tx: W / 2 + Math.cos(targetAngle) * GATHER_CIRCLE_R,
-        ty: H / 2 + Math.sin(targetAngle) * GATHER_CIRCLE_R,
+        tx: GATHER_CIRCLE_CX + Math.cos(targetAngle) * GATHER_CIRCLE_R,
+        ty: GATHER_CIRCLE_CY + Math.sin(targetAngle) * GATHER_CIRCLE_R,
         delay: Math.random() * 1.1,
         dur: 1.2 + Math.random() * 0.7,
         size: 1.8 + Math.random() * 3.0,
@@ -1242,7 +1245,7 @@ function GatherBloomCircle({ sessionId, stepText, loading, phase, onPhaseChange,
   const spawnBloom = () => {
     if (reduceMotion.current) return;
     const arr = [];
-    const cx = GATHER_CANVAS_W / 2, cy = GATHER_CIRCLE_CY, R = GATHER_CIRCLE_R + 4;
+    const cx = GATHER_CIRCLE_CX, cy = GATHER_CIRCLE_CY, R = GATHER_CIRCLE_R + 4;
     for (let i = 0; i < 52; i++) {
       const spread = (Math.random() - 0.5) * 2;
       const a = -Math.PI / 2 + spread * spread * spread * 1.5;
@@ -1275,7 +1278,7 @@ function GatherBloomCircle({ sessionId, stepText, loading, phase, onPhaseChange,
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
 
     let raf;
-    const cx = W / 2, cy = GATHER_CIRCLE_CY;
+    const cx = GATHER_CIRCLE_CX, cy = GATHER_CIRCLE_CY;
     const baseR = GATHER_CIRCLE_R;
     const lerp = (a, b, k) => a + (b - a) * k;
     const easeInOut = (k) => k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
@@ -1688,15 +1691,27 @@ function InProgressScreen({ gatherPhase, onGatherPhaseChange, onDone, onPause, o
 
   return (
     <>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+      <div style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        marginBottom: 16,
+        minHeight: 28,
+        flexShrink: 0,
+      }}>
         <Label style={{ margin: 0 }}>{isComplete ? "Step complete" : "In Progress"}</Label>
-        {!isComplete && (
-        <button onClick={onPause} style={{
-          background: "none", border: "none", color: C.neutral500,
-          ...T.small, fontWeight: 600, cursor: "pointer", fontFamily: "Inter",
-          display: "flex", alignItems: "center", gap: 6,
-        }}>‖ Pause</button>
-        )}
+        <button
+          onClick={onPause}
+          aria-hidden={isComplete}
+          tabIndex={isComplete ? -1 : 0}
+          style={{
+            background: "none", border: "none", color: C.neutral500,
+            ...T.small, fontWeight: 600, cursor: isComplete ? "default" : "pointer", fontFamily: "Inter",
+            display: "flex", alignItems: "center", gap: 6,
+            visibility: isComplete ? "hidden" : "visible",
+            pointerEvents: isComplete ? "none" : "auto",
+          }}
+        >‖ Pause</button>
       </div>
 
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, width: "100%" }}>
@@ -1714,62 +1729,82 @@ function InProgressScreen({ gatherPhase, onGatherPhaseChange, onDone, onPause, o
         </div>
         <div style={{
           flex: 1,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          minHeight: 0,
+          minHeight: FOCUS_CAPTION_MIN_H,
           width: "100%",
+          position: "relative",
         }}>
-          <div style={{ textAlign: "center" }}>
-            {isComplete ? (
-              <>
-                <div style={{
-                  ...T.small, color: C.success500, fontWeight: 600, marginBottom: 6,
-                }}>
-                  Small step taken.
-                </div>
-                <div style={{ ...T.hint }}>That's real progress.</div>
-              </>
-            ) : (
-              <>
-                <div style={{
-                  ...T.small, color: C.accent500, fontWeight: 600, marginBottom: 6,
-                }}>
-                  Take your time. No rush.
-                </div>
-                <div style={{ ...T.hint }}>Focus on just this one thing.</div>
-              </>
-            )}
+          <div style={{
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            textAlign: "center",
+            opacity: isComplete ? 0 : 1,
+            pointerEvents: "none",
+            transition: "opacity 300ms ease",
+          }}>
+            <div style={{
+              ...T.small, color: C.accent500, fontWeight: 600, marginBottom: 6,
+            }}>
+              Take your time. No rush.
+            </div>
+            <div style={{ ...T.hint }}>Focus on just this one thing.</div>
+          </div>
+          <div style={{
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            textAlign: "center",
+            opacity: isComplete ? 1 : 0,
+            pointerEvents: "none",
+            transition: "opacity 300ms ease",
+          }}>
+            <div style={{
+              ...T.small, color: C.success500, fontWeight: 600, marginBottom: 6,
+            }}>
+              Small step taken.
+            </div>
+            <div style={{ ...T.hint }}>That's real progress.</div>
           </div>
         </div>
+        <div style={{
+          flexShrink: 0,
+          minHeight: FOCUS_ACTIONS_H,
+          display: "flex",
+          flexDirection: "column",
+          gap: 12,
+          visibility: isComplete ? "hidden" : "visible",
+          pointerEvents: isComplete ? "none" : "auto",
+        }}>
+          <BtnSecondary key="too-much" onClick={onTooMuch}>Too much?</BtnSecondary>
+          {showDeferInput ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 4 }}>
+              <div style={{ ...T.small, color: "var(--n7)" }}>What do you need first?</div>
+              <input
+                className="nudge-defer-input"
+                value={deferDraft}
+                onChange={e => setDeferDraft(e.target.value)}
+                placeholder="e.g. find the right document"
+                style={{
+                  border: `1.5px solid ${C.accent500}`, borderRadius: 12,
+                  padding: "12px 14px", width: "100%", boxSizing: "border-box",
+                  ...T.body, fontFamily: "Inter", color: "var(--n9)",
+                  background: isDark ? "#2D2A45" : C.neutral50,
+                }}
+              />
+              <style>{`.nudge-defer-input::placeholder { color: ${C.neutral300}; opacity: 1; }`}</style>
+              <BtnPrimary onClick={() => deferDraft.trim() && onDefer(deferDraft.trim())}>Save & come back</BtnPrimary>
+            </div>
+          ) : (
+            <BtnSecondary key="not-ready" onClick={() => setShowDeferInput(true)}>Not ready yet</BtnSecondary>
+          )}
+        </div>
       </div>
-
-      {!isComplete && (
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <BtnSecondary key="too-much" onClick={onTooMuch}>Too much?</BtnSecondary>
-        {showDeferInput ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 4 }}>
-            <div style={{ ...T.small, color: "var(--n7)" }}>What do you need first?</div>
-            <input
-              className="nudge-defer-input"
-              value={deferDraft}
-              onChange={e => setDeferDraft(e.target.value)}
-              placeholder="e.g. find the right document"
-              style={{
-                border: `1.5px solid ${C.accent500}`, borderRadius: 12,
-                padding: "12px 14px", width: "100%", boxSizing: "border-box",
-                ...T.body, fontFamily: "Inter", color: "var(--n9)",
-                background: isDark ? "#2D2A45" : C.neutral50,
-              }}
-            />
-            <style>{`.nudge-defer-input::placeholder { color: ${C.neutral300}; opacity: 1; }`}</style>
-            <BtnPrimary onClick={() => deferDraft.trim() && onDefer(deferDraft.trim())}>Save & come back</BtnPrimary>
-          </div>
-        ) : (
-          <BtnSecondary key="not-ready" onClick={() => setShowDeferInput(true)}>Not ready yet</BtnSecondary>
-        )}
-      </div>
-      )}
     </>
   );
 }
