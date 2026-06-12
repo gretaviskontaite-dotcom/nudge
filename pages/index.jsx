@@ -792,7 +792,8 @@ function SuggestionScreen({ next, onTooHard, onAnother, onSkip, onExit, task, st
   const isDark = useContext(IsDarkContext);
   const step = steps[stepIndex] || steps[0];
   const total = steps.length || 1;
-  const pct = loading ? 0 : ((stepIndex + 1) / total) * 100;
+  const stepReady = !loading && steps.length > 0 && !!step?.text;
+  const pct = stepReady ? ((stepIndex + 1) / total) * 100 : 0;
   const taskLabel = task.length > 18 ? task.slice(0, 16) + "…" : task.toUpperCase();
   return (
     <>
@@ -849,7 +850,7 @@ function SuggestionScreen({ next, onTooHard, onAnother, onSkip, onExit, task, st
         )}
 
         {/* Progress bar + step counter */}
-        {!loading && (
+        {stepReady && (
           <>
             <div style={{ marginBottom: 6 }}>
               <div style={{ height: 4, borderRadius: 4, background: C.neutral200, overflow: "hidden" }}>
@@ -862,34 +863,37 @@ function SuggestionScreen({ next, onTooHard, onAnother, onSkip, onExit, task, st
           </>
         )}
 
-        {loading && (
+        {!stepReady && (
           <div style={{ ...T.hint, textAlign: "center", marginBottom: 28 }}>Finding your first step…</div>
         )}
 
+        {stepReady && (
+          <>
         {/* See all steps */}
-        <button onClick={onAnother} disabled={loading} style={{
-          background: "none", border: "none", color: loading ? C.neutral300 : C.accent500,
-          ...T.hint, fontSize: 14, cursor: loading ? "default" : "pointer",
-          fontFamily: "Inter", textDecoration: loading ? "none" : "underline",
+        <button onClick={onAnother} style={{
+          background: "none", border: "none", color: C.accent500,
+          ...T.hint, fontSize: 14, cursor: "pointer",
+          fontFamily: "Inter", textDecoration: "underline",
           marginBottom: 24, padding: 0, display: "flex", alignItems: "center",
           justifyContent: "center", gap: 6, width: "100%",
-          opacity: loading ? 0.5 : 1,
         }}>
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <rect x="1" y="1" width="12" height="3" rx="1" fill={loading ? C.neutral300 : C.accent500} fillOpacity="0.4"/>
-            <rect x="1" y="5.5" width="12" height="3" rx="1" fill={loading ? C.neutral300 : C.accent500} fillOpacity="0.7"/>
-            <rect x="1" y="10" width="12" height="3" rx="1" fill={loading ? C.neutral300 : C.accent500}/>
+            <rect x="1" y="1" width="12" height="3" rx="1" fill={C.accent500} fillOpacity="0.4"/>
+            <rect x="1" y="5.5" width="12" height="3" rx="1" fill={C.accent500} fillOpacity="0.7"/>
+            <rect x="1" y="10" width="12" height="3" rx="1" fill={C.accent500}/>
           </svg>
           see all steps
         </button>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <BtnPrimary onClick={loading ? undefined : next} disabled={loading}>I can do that</BtnPrimary>
+          <BtnPrimary onClick={next}>I can do that</BtnPrimary>
           <div style={{ display: "flex", gap: 10 }}>
-            <BtnAccent onClick={loading ? undefined : onTooHard}>Too hard</BtnAccent>
-            <BtnAccent onClick={loading ? undefined : onAnother}>Another</BtnAccent>
+            <BtnAccent onClick={onTooHard}>Too hard</BtnAccent>
+            <BtnAccent onClick={onAnother}>Another</BtnAccent>
           </div>
         </div>
+          </>
+        )}
       </div>
     </>
   );
