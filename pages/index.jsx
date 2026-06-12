@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useContext, createContext } from "react";
+import { useState, useEffect, useRef, useContext, createContext, useCallback } from "react";
 
 // ── DESIGN TOKENS (from Figma inspect) ───────────────────────────────
 // Font: Inter throughout
@@ -1018,25 +1018,534 @@ function AllStepsScreen({ back, steps, stepIndex, onPick, task, loading, stepLin
   );
 }
 
+const GATHER_PURPLE = [124, 111, 205];
+const GATHER_MINT = [95, 191, 155];
+const GATHER_HOLD_MS = 850;
+const GATHER_CANVAS_W = 390;
+const GATHER_CANVAS_H = 330;
+const GATHER_CIRCLE_CY = 165;
+const GATHER_CIRCLE_R = 102;
+
+function gatherTaskTextStyle(text, isDark) {
+  const len = (text || "").length;
+  const fontSize =
+    len <= 30 ? 18 :
+    len <= 55 ? 16 :
+    len <= 85 ? 14 :
+    len <= 120 ? 12.5 : 11;
+  return {
+    margin: 0,
+    position: "absolute",
+    left: "50%",
+    top: GATHER_CIRCLE_CY,
+    transform: "translate(-50%, -50%)",
+    width: 158,
+    maxHeight: 150,
+    overflow: "hidden",
+    fontSize,
+    lineHeight: 1.4,
+    fontWeight: 600,
+    color: isDark ? "#F0EEF8" : "#3A372F",
+    textAlign: "center",
+    overflowWrap: "break-word",
+  };
+}
+
+function GatherBloomCircle({ sessionId, stepText, loading, isDark, onComplete, resourceLink }) {
+  const displayText = stepText || "Your step is loading…";
+  const [phase, setPhase] = useState("loading");
+  const [runId, setRunId] = useState(0);
+  const canvasRef = useRef(null);
+  const phaseRef = useRef("loading");
+  const phaseStart = useRef(performance.now());
+  const hold = useRef({ active: false, value: 0 });
+  const gatherers = useRef([]);
+  const bloomers = useRef([]);
+  const colorMix = useRef(0);
+  const circleAlpha = useRef(0);
+  const reduceMotion = useRef(false);
+  const loadingRef = useRef(loading);
+  const stepTextRef = useRef(stepText);
+  const focusTriggered = useRef(false);
+  const completeFired = useRef(false);
+  const onCompleteRef = useRef(onComplete);
+
+  loadingRef.current = loading;
+  stepTextRef.current = stepText;
+  onCompleteRef.current = onComplete;
+
+  useEffect(() => {
+    if (window.matchMedia) {
+      reduceMotion.current = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    }
+  }, []);
+
+  const resetGatherAnimation = useCallback(() => {
+    setPhase("loading");
+    phaseRef.current = "loading";
+    phaseStart.current = performance.now();
+    focusTriggered.current = false;
+    completeFired.current = false;
+    hold.current = { active: false, value: 0 };
+    bloomers.current = [];
+    colorMix.current = 0;
+    circleAlpha.current = reduceMotion.current ? 1 : 0;
+    spawnGather();
+    setRunId(r => r + 1);
+  }, []);
+
+  useEffect(() => {
+    resetGatherAnimation();
+  }, [sessionId, stepText, resetGatherAnimation]);
+
+  useEffect(() => {
+    phaseRef.current = phase;
+    phaseStart.current = performance.now();
+    if (phase === "complete") {
+      spawnBloom();
+      completeFired.current = false;
+    }
+  }, [phase, runId]);
+
+  useEffect(() => {
+    if (phase !== "complete") return;
+    const t = setTimeout(() => {
+      if (!completeFired.current) {
+        completeFired.current = true;
+        onCompleteRef.current();
+      }
+    }, 2200);
+    return () => clearTimeout(t);
+  }, [phase]);
+
+  const spawnGather = () => {
+    if (reduceMotion.current) { gatherers.current = []; return; }
+    const arr = [];
+    const W = GATHER_CANVAS_W, H = GATHER_CANVAS_H;
+    for (let i = 0; i < 44; i++) {
+      const edge = Math.floor(Math.random() * 4);
+      let x, y;
+      if (edge === 0) { x = Math.random() * W; y = -20 - Math.random() * 40; }
+      else if (edge === 1) { x = W + 20 + Math.random() * 40; y = Math.random() * H; }
+      else if (edge === 2) { x = Math.random() * W; y = H + 20 + Math.random() * 40; }
+      else { x = -20 - Math.random() * 40; y = Math.random() * H; }
+      const targetAngle = Math.random() * Math.PI * 2;
+      arr.push({
+        x, y,
+        tx: W / 2 + Math.cos(targetAngle) * GATHER_CIRCLE_R,
+        ty: H / 2 + Math.sin(targetAngle) * GATHER_CIRCLE_R,
+        delay: Math.random() * 1.1,
+        dur: 1.2 + Math.random() * 0.7,
+        size: 1.8 + Math.random() * 3.0,
+        curve: (Math.random() - 0.5) * 120,
+        arrived: false,
+      });
+    }
+    gatherers.current = arr;
+  };
+
+  const spawnBloom = () => {
+    if (reduceMotion.current) return;
+    const arr = [];
+    const cx = GATHER_CANVAS_W / 2, cy = GATHER_CIRCLE_CY, R = 106;
+    for (let i = 0; i < 52; i++) {
+      const spread = (Math.random() - 0.5) * 2;
+      const a = -Math.PI / 2 + spread * spread * spread * 1.5;
+      const ox = cx + Math.cos(a) * R;
+      const oy = cy + Math.sin(a) * R;
+      const power = 2.6 + Math.random() * 3.2;
+      arr.push({
+        x: ox, y: oy,
+        vx: Math.cos(a) * power * 0.55 + (Math.random() - 0.5) * 0.8,
+        vy: Math.sin(a) * power - Math.random() * 1.6,
+        size: 1.4 + Math.random() * 3.0,
+        life: 1,
+        decay: 0.0055 + Math.random() * 0.007,
+        mint: Math.random() > 0.25,
+      });
+    }
+    bloomers.current = arr;
+  };
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const DPR = Math.min(window.devicePixelRatio || 1, 2);
+    const W = GATHER_CANVAS_W, H = GATHER_CANVAS_H;
+    canvas.width = W * DPR;
+    canvas.height = H * DPR;
+    canvas.style.width = "100%";
+    canvas.style.height = H + "px";
+    ctx.scale(DPR, DPR);
+
+    let raf;
+    const cx = W / 2, cy = GATHER_CIRCLE_CY;
+    const baseR = GATHER_CIRCLE_R;
+    const lerp = (a, b, k) => a + (b - a) * k;
+    const easeInOut = (k) => k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+    const mixCol = (c1, c2, k) => c1.map((v, i) => Math.round(lerp(v, c2[i], k)));
+
+    const draw = (now) => {
+      const t = now / 1000;
+      const ph = phaseRef.current;
+      const since = (now - phaseStart.current) / 1000;
+
+      if (ph === "focus") {
+        const dt = 16.7;
+        if (hold.current.active) {
+          hold.current.value = Math.min(1, hold.current.value + dt / GATHER_HOLD_MS);
+          if (hold.current.value >= 1) {
+            hold.current = { active: false, value: 0 };
+            setPhase("complete");
+          }
+        } else {
+          hold.current.value = Math.max(0, hold.current.value - dt / (GATHER_HOLD_MS * 0.55));
+        }
+      }
+      const hv = hold.current.value;
+
+      colorMix.current = lerp(colorMix.current, ph === "complete" ? 1 : hv * 0.35, 0.05);
+      const [cr, cg, cb] = mixCol(GATHER_PURPLE, GATHER_MINT, colorMix.current);
+
+      ctx.clearRect(0, 0, W, H);
+
+      const breathe = reduceMotion.current
+        ? 0.5
+        : ph === "loading"
+        ? Math.min(1, since / 2.5)
+        : ph === "focus"
+        ? Math.sin(t * 0.85) * 0.5 + 0.5
+        : 0.65;
+
+      let R = baseR;
+      if (!reduceMotion.current) {
+        if (ph === "focus") R += Math.sin(t * 0.85) * 5 + hv * 7;
+        if (ph === "complete") {
+          const k = Math.min(1, since / 0.6);
+          R += 4 + Math.sin(k * Math.PI) * 6 * (1 - k);
+        }
+      }
+
+      const haloGate = ph === "loading" ? circleAlpha.current : 1;
+      const haloR = R + 52;
+      const halo = ctx.createRadialGradient(cx, cy, R * 0.55, cx, cy, haloR);
+      halo.addColorStop(0, `rgba(${cr},${cg},${cb},${(0.04 + breathe * 0.06 + hv * 0.05) * haloGate})`);
+      halo.addColorStop(0.55, `rgba(${cr},${cg},${cb},${0.008 * haloGate})`);
+      halo.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.beginPath();
+      ctx.arc(cx, cy, haloR, 0, Math.PI * 2);
+      ctx.fillStyle = halo;
+      ctx.fill();
+
+      if (ph === "loading" && gatherers.current.length) {
+        let arrivedCount = 0;
+        const landBoost = !loadingRef.current && stepTextRef.current ? 1.8 : 1;
+        for (const g of gatherers.current) {
+          const k = Math.min(1, Math.max(0, ((since - g.delay) / g.dur) * landBoost));
+          if (k >= 1) { g.arrived = true; arrivedCount++; continue; }
+          if (k <= 0) {
+            ctx.beginPath();
+            ctx.arc(g.x, g.y, g.size * 0.7, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(${GATHER_PURPLE[0]},${GATHER_PURPLE[1]},${GATHER_PURPLE[2]},0.15)`;
+            ctx.fill();
+            continue;
+          }
+          const e = easeInOut(k);
+          const mx = (g.x + g.tx) / 2 + g.curve * Math.sin(Math.PI * 0.5);
+          const my = (g.y + g.ty) / 2 + g.curve * 0.6;
+          const x = (1 - e) * (1 - e) * g.x + 2 * (1 - e) * e * mx + e * e * g.tx;
+          const y = (1 - e) * (1 - e) * g.y + 2 * (1 - e) * e * my + e * e * g.ty;
+          const alpha = 0.25 + e * 0.55;
+          ctx.beginPath();
+          ctx.arc(x, y, g.size * (0.6 + e * 0.4), 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(${GATHER_PURPLE[0]},${GATHER_PURPLE[1]},${GATHER_PURPLE[2]},${alpha})`;
+          ctx.fill();
+          ctx.beginPath();
+          ctx.arc(x, y, g.size * 2.4, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(${GATHER_PURPLE[0]},${GATHER_PURPLE[1]},${GATHER_PURPLE[2]},${alpha * 0.12})`;
+          ctx.fill();
+        }
+        const target = gatherers.current.length ? arrivedCount / gatherers.current.length : 1;
+        const alphaSpeed = !loadingRef.current && stepTextRef.current ? 0.14 : 0.06;
+        circleAlpha.current = lerp(circleAlpha.current, target, alphaSpeed);
+        if (
+          !loadingRef.current &&
+          stepTextRef.current &&
+          !focusTriggered.current &&
+          (circleAlpha.current > 0.88 || target >= 0.95 || reduceMotion.current)
+        ) {
+          focusTriggered.current = true;
+          setPhase("focus");
+        }
+      } else if (ph !== "loading") {
+        circleAlpha.current = lerp(circleAlpha.current, 1, 0.08);
+      }
+      const ca = circleAlpha.current;
+
+      if (ca > 0.02) {
+        const fg = ctx.createRadialGradient(cx - R * 0.25, cy - R * 0.3, R * 0.1, cx, cy, R * 1.12);
+        fg.addColorStop(0, `rgba(${cr},${cg},${cb},${(0.18 + hv * 0.10 + (ph === "complete" ? 0.12 : 0)) * ca})`);
+        fg.addColorStop(0.7, `rgba(${cr},${cg},${cb},${(0.09 + hv * 0.05) * ca})`);
+        fg.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
+        ctx.beginPath();
+        ctx.arc(cx, cy, R, 0, Math.PI * 2);
+        ctx.fillStyle = fg;
+        ctx.fill();
+        ctx.strokeStyle = `rgba(${cr},${cg},${cb},${0.40 * ca})`;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+
+      if (ph === "focus" && hv > 0.005) {
+        const waveAmp = 4.5 * (1 - hv * 0.5);
+        const level = cy + R - hv * (R * 2 + waveAmp * 2 + 16);
+        const tideCol = mixCol(GATHER_PURPLE, GATHER_MINT, hv);
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(cx, cy, R - 1, 0, Math.PI * 2);
+        ctx.clip();
+        for (let layer = 0; layer < 2; layer++) {
+          const dir = layer === 0 ? 1 : -1;
+          const speed = layer === 0 ? 2.6 : 1.9;
+          const yOff = layer === 0 ? 0 : 3;
+          ctx.beginPath();
+          ctx.moveTo(cx - R, cy + R + 4);
+          for (let x = cx - R; x <= cx + R; x += 4) {
+            const wy =
+              level + yOff +
+              Math.sin((x / 34) * dir + t * speed) * waveAmp +
+              Math.sin((x / 13) * dir - t * speed * 1.4) * waveAmp * 0.35;
+            ctx.lineTo(x, wy);
+          }
+          ctx.lineTo(cx + R, cy + R + 4);
+          ctx.closePath();
+          const a = layer === 0 ? 0.30 : 0.18;
+          ctx.fillStyle = `rgba(${tideCol[0]},${tideCol[1]},${tideCol[2]},${a + hv * 0.15})`;
+          ctx.fill();
+        }
+        ctx.beginPath();
+        for (let x = cx - R; x <= cx + R; x += 4) {
+          const wy =
+            level +
+            Math.sin((x / 34) + t * 2.6) * waveAmp +
+            Math.sin((x / 13) - t * 3.64) * waveAmp * 0.35;
+          x === cx - R ? ctx.moveTo(x, wy) : ctx.lineTo(x, wy);
+        }
+        ctx.strokeStyle = `rgba(${tideCol[0]},${tideCol[1]},${tideCol[2]},0.85)`;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        if (!reduceMotion.current && hv > 0.12) {
+          for (let i = 0; i < 7; i++) {
+            const seed = i * 137.5;
+            const bx = cx - R * 0.7 + ((seed * 7.3) % (R * 1.4));
+            const cycle = ((t * (0.35 + (i % 3) * 0.12) + i * 0.21) % 1);
+            const by = cy + R - cycle * (cy + R - level - 6);
+            if (by > level + 4) {
+              ctx.beginPath();
+              ctx.arc(bx, by, 1.3 + (i % 3) * 0.6, 0, Math.PI * 2);
+              ctx.fillStyle = `rgba(255,255,255,${0.35 * (1 - cycle)})`;
+              ctx.fill();
+            }
+          }
+        }
+        ctx.restore();
+        ctx.beginPath();
+        ctx.arc(cx, cy, R, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(${tideCol[0]},${tideCol[1]},${tideCol[2]},${0.4 + hv * 0.4})`;
+        ctx.lineWidth = 1.5 + hv * 1.5;
+        ctx.stroke();
+      }
+
+      if (ph === "complete") {
+        const settle = Math.min(1, since / 1.5);
+        const waveAmp = 4.5 * (1 - settle);
+        const tideCol = mixCol(GATHER_PURPLE, GATHER_MINT, Math.min(1, 0.6 + settle * 0.4));
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(cx, cy, R - 1, 0, Math.PI * 2);
+        ctx.clip();
+        const level = cy - R - waveAmp - 6 + settle * 0;
+        for (let layer = 0; layer < 2; layer++) {
+          const dir = layer === 0 ? 1 : -1;
+          const speed = layer === 0 ? 2.6 : 1.9;
+          ctx.beginPath();
+          ctx.moveTo(cx - R, cy + R + 4);
+          for (let x = cx - R; x <= cx + R; x += 4) {
+            const wy =
+              level +
+              Math.sin((x / 34) * dir + t * speed) * waveAmp +
+              Math.sin((x / 13) * dir - t * speed * 1.4) * waveAmp * 0.35;
+            ctx.lineTo(x, wy);
+          }
+          ctx.lineTo(cx + R, cy + R + 4);
+          ctx.closePath();
+          ctx.fillStyle = `rgba(${tideCol[0]},${tideCol[1]},${tideCol[2]},${layer === 0 ? 0.32 : 0.18})`;
+          ctx.fill();
+        }
+        ctx.restore();
+        ctx.beginPath();
+        ctx.arc(cx, cy, R, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(${tideCol[0]},${tideCol[1]},${tideCol[2]},0.7)`;
+        ctx.lineWidth = 2.5;
+        ctx.stroke();
+      }
+
+      if (bloomers.current.length) {
+        bloomers.current = bloomers.current.filter((p) => p.life > 0);
+        for (const p of bloomers.current) {
+          p.x += p.vx;
+          p.y += p.vy;
+          p.vy += 0.085;
+          p.vx *= 0.985;
+          p.vy *= 0.992;
+          p.life -= p.decay;
+          const c = p.mint ? GATHER_MINT : GATHER_PURPLE;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+          ctx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},${0.6 * p.life})`;
+          ctx.fill();
+        }
+      }
+
+      if (ph === "complete") {
+        const k = Math.min(1, Math.max(0, (since - 0.55) / 0.5));
+        if (k > 0) {
+          const ease = 1 - Math.pow(1 - k, 3);
+          ctx.save();
+          ctx.translate(cx, cy);
+          ctx.strokeStyle = `rgba(${GATHER_MINT[0]},${GATHER_MINT[1]},${GATHER_MINT[2]},0.95)`;
+          ctx.lineWidth = 5.5;
+          ctx.lineCap = "round";
+          ctx.lineJoin = "round";
+          const p1 = [-26, 2], p2 = [-6, 22], p3 = [30, -18];
+          const l1 = Math.hypot(p2[0] - p1[0], p2[1] - p1[1]);
+          const l2 = Math.hypot(p3[0] - p2[0], p3[1] - p2[1]);
+          const drawn = ease * (l1 + l2);
+          ctx.beginPath();
+          ctx.moveTo(p1[0], p1[1]);
+          if (drawn <= l1) {
+            const k1 = drawn / l1;
+            ctx.lineTo(p1[0] + (p2[0] - p1[0]) * k1, p1[1] + (p2[1] - p1[1]) * k1);
+          } else {
+            ctx.lineTo(p2[0], p2[1]);
+            const k2 = (drawn - l1) / l2;
+            ctx.lineTo(p2[0] + (p3[0] - p2[0]) * k2, p2[1] + (p3[1] - p2[1]) * k2);
+          }
+          ctx.stroke();
+          ctx.restore();
+        }
+      }
+
+      raf = requestAnimationFrame(draw);
+    };
+
+    raf = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  const startHold = useCallback((e) => {
+    e.preventDefault();
+    if (phaseRef.current !== "focus" || loadingRef.current) return;
+    hold.current.active = true;
+    if (navigator.vibrate) navigator.vibrate(8);
+  }, []);
+  const endHold = useCallback(() => {
+    hold.current.active = false;
+  }, []);
+
+  const showFocusText = phase === "focus" && !!stepText;
+  const showLoadingHint = phase === "loading";
+
+  return (
+    <div
+      style={{
+        position: "relative",
+        width: "100%",
+        maxWidth: GATHER_CANVAS_W,
+        height: GATHER_CANVAS_H,
+        touchAction: "none",
+        cursor: phase === "focus" && !loading ? "pointer" : "default",
+        WebkitUserSelect: "none",
+        userSelect: "none",
+      }}
+      onMouseDown={startHold}
+      onMouseUp={endHold}
+      onMouseLeave={endHold}
+      onTouchStart={startHold}
+      onTouchEnd={endHold}
+      onTouchCancel={endHold}
+      role={phase === "focus" && !loading ? "button" : undefined}
+      aria-label={phase === "focus" && !loading ? "Press and hold to finish this step" : undefined}
+    >
+      <canvas
+        ref={canvasRef}
+        style={{
+          display: "block",
+          width: "100%",
+          background: "transparent",
+        }}
+      />
+      <div style={{
+        position: "absolute", inset: 0, pointerEvents: "none",
+        opacity: showFocusText ? 1 : 0,
+        transform: showFocusText ? "scale(1)" : "scale(0.97)",
+        transition: showFocusText ? "opacity 600ms ease 300ms, transform 600ms ease 300ms" : "opacity 600ms ease, transform 600ms ease",
+      }}>
+        <p style={gatherTaskTextStyle(displayText, isDark)}>{displayText}</p>
+        {resourceLink ? (
+          <a
+            href={resourceLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              position: "absolute",
+              left: "50%",
+              top: GATHER_CIRCLE_CY + 72,
+              transform: "translateX(-50%)",
+              color: C.accent500,
+              fontSize: 13,
+              fontWeight: 600,
+              textDecoration: "underline",
+              fontFamily: "Inter",
+              pointerEvents: "auto",
+            }}
+          >Open resource →</a>
+        ) : null}
+      </div>
+      <div style={{
+        position: "absolute", inset: 0,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        pointerEvents: "none",
+        opacity: showLoadingHint ? 1 : 0,
+        transform: showLoadingHint ? "scale(1)" : "scale(0.97)",
+        transition: "opacity 600ms ease, transform 600ms ease",
+      }}>
+        <p style={{
+          margin: 0,
+          fontSize: 12.5,
+          fontWeight: 600,
+          letterSpacing: "0.12em",
+          textTransform: "uppercase",
+          color: isDark ? C.accent300 : "#9D93D8",
+        }}>gathering your step</p>
+      </div>
+    </div>
+  );
+}
+
 function inProgressShellBackground(isDark) {
   return isDark
     ? "radial-gradient(ellipse at 50% 30%, #1E1B35 0%, #1A1828 60%)"
     : "radial-gradient(ellipse at 50% 30%, #EEE9FF 0%, #F0EEF5 60%)";
 }
 
-function InProgressScreen({ onDone, onPause, onTooMuch, onDefer, step, resourceLink }) {
+function InProgressScreen({ onDone, onPause, onTooMuch, onDefer, step, resourceLink, stepsLoading }) {
   const isDark = useContext(IsDarkContext);
-  const [expand, setExpand] = useState(false);
   const [showDeferInput, setShowDeferInput] = useState(false);
   const [deferDraft, setDeferDraft] = useState("");
+  const [gatherSessionId] = useState(() => Math.random());
 
-  useEffect(() => {
-    setExpand(true);
-    const t = setInterval(() => {
-      setExpand(e => !e);
-    }, 4000);
-    return () => clearInterval(t);
-  }, []);
   return (
     <>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 32 }}>
@@ -1049,36 +1558,14 @@ function InProgressScreen({ onDone, onPause, onTooMuch, onDefer, step, resourceL
       </div>
 
       <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 24 }}>
-        {/* Breathing circle */}
-        <div style={{
-          width: 232, height: 232,
-          borderRadius: "50%",
-          background: isDark ? "rgba(45,42,69,0.9)" : "rgba(238,233,255,0.75)",
-          backdropFilter: "blur(12px)",
-          border: isDark ? "1.5px solid rgba(124,111,205,0.35)" : "1.5px solid rgba(124,111,205,0.25)",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          overflow: "hidden",
-          boxShadow: expand
-            ? `0 0 0 18px ${C.accent100}88, 0 0 0 34px ${C.accent100}44`
-            : `0 0 0 0px ${C.accent100}`,
-          transition: "box-shadow 4s ease-in-out",
-          padding: 32, textAlign: "center",
-          boxSizing: "border-box",
-          flexDirection: "column", gap: 8,
-        }}>
-          <div style={{ ...T.subtitle, color: "var(--n9)", fontSize: 17, fontWeight: 600, lineHeight: 1.3, textAlign: "center" }}>{step?.text ?? "Your step is loading…"}</div>
-          {resourceLink ? (
-            <a
-              href={resourceLink}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                color: C.accent500, fontSize: 13, fontWeight: 600,
-                textDecoration: "underline", fontFamily: "Inter",
-              }}
-            >Open resource →</a>
-          ) : null}
-        </div>
+        <GatherBloomCircle
+          sessionId={gatherSessionId}
+          stepText={step?.text}
+          loading={stepsLoading}
+          isDark={isDark}
+          onComplete={onDone}
+          resourceLink={resourceLink}
+        />
 
         <div style={{ textAlign: "center", minHeight: 44 }}>
           <div style={{
@@ -1091,7 +1578,6 @@ function InProgressScreen({ onDone, onPause, onTooMuch, onDefer, step, resourceL
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <BtnPrimary onClick={onDone}>Done</BtnPrimary>
         <BtnSecondary key="too-much" onClick={onTooMuch}>Too much?</BtnSecondary>
         {showDeferInput ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 4 }}>
@@ -1812,9 +2298,12 @@ function PatternScreen({ next, onExit, completedCount, topEnergy, insights }) {
   const useRealData = insights?.totalSessions >= 3;
   const insightSet = useRealData ? buildRealInsightCards(insights) : INSIGHT_LIBRARY;
   const insightCount = insightSet.length;
-  const [insightIndex, setInsightIndex] = useState(() =>
-    useRealData ? 0 : Math.floor(Math.random() * INSIGHT_LIBRARY.length)
-  );
+  const [insightIndex, setInsightIndex] = useState(0);
+  useEffect(() => {
+    setInsightIndex(
+      useRealData ? 0 : Math.floor(Math.random() * INSIGHT_LIBRARY.length)
+    );
+  }, [useRealData]);
   const insight = insightSet[insightIndex % insightCount];
   const touchStartX = useRef(null);
 
@@ -2022,142 +2511,148 @@ function MomentumScreen({ next, onExit, completedSteps, onMarkDone, task }) {
 // APP
 // ═══════════════════════════════════════════════════════════════════════
 
-export default function NudgeApp() {
-  const [isDark, setIsDark] = useState(false);
-  const [screen, setScreen] = useState(() => {
-    if (typeof window === "undefined") return "splash";
-    try {
-      const tasksRaw = localStorage.getItem("nudge_tasks");
-      const savedTasks = tasksRaw ? JSON.parse(tasksRaw) : [];
-      const hasTasks = Array.isArray(savedTasks) && savedTasks.length > 0;
-      if (!hasTasks) return "onboarding";
-      const saved = localStorage.getItem("nudge_screen");
-      if (!saved || saved === "splash" || saved === "onboarding") return "suggestion";
-      return saved;
-    } catch {
-      return "onboarding";
-    }
-  });
+function resolveInitialScreen(tasks, savedScreen) {
+  const hasTasks = Array.isArray(tasks) && tasks.length > 0;
+  if (!hasTasks) return "onboarding";
+  if (!savedScreen || savedScreen === "splash" || savedScreen === "onboarding") return "suggestion";
+  return savedScreen;
+}
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    setIsDark(mq.matches);
-    const onChange = (e) => setIsDark(e.matches);
-    mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
-  }, []);
-  const [tasks, setTasks] = useState(() => {
-    if (typeof window === "undefined") return [];
-    try { return JSON.parse(localStorage.getItem("nudge_tasks")) || []; }
-    catch { return []; }
-  });
-  const [defaultEnergy, setDefaultEnergy] = useState(() => {
-    if (typeof window === "undefined") return "low";
-    try { return localStorage.getItem("nudge_energy") || "low"; }
-    catch { return "low"; }
-  });
-  const [defaultTime, setDefaultTime] = useState(() => {
-    if (typeof window === "undefined") return "10 min";
-    try { return localStorage.getItem("nudge_time") || "10 min"; }
-    catch { return "10 min"; }
-  });
-  const [stepIndex, setStepIndex] = useState(() => {
-    if (typeof window === "undefined") return 0;
-    try {
-      const v = JSON.parse(localStorage.getItem("nudge_step_index"));
-      return Number.isInteger(v) ? v : 0;
-    } catch { return 0; }
-  });
-  const [sessionCount, setSessionCount] = useState(() => {
-    if (typeof window === "undefined") return 0;
-    try {
-      const v = JSON.parse(localStorage.getItem("nudge_session_count"));
-      return Number.isInteger(v) ? v : 0;
-    } catch { return 0; }
-  });
-  const [completedSteps, setCompletedSteps] = useState(() => {
-    if (typeof window === "undefined") return [];
-    try { return JSON.parse(localStorage.getItem("nudge_completed_steps")) || []; }
-    catch { return []; }
-  });
-  const [granularity, setGranularity] = useState(() => {
-    if (typeof window === "undefined") return "balanced";
-    try { return localStorage.getItem("nudge_granularity") || "balanced"; }
-    catch { return "balanced"; }
-  });
+function loadPersistedAppState() {
+  try {
+    const tasks = JSON.parse(localStorage.getItem("nudge_tasks")) || [];
+    const savedScreen = localStorage.getItem("nudge_screen");
+    const stepIndexRaw = JSON.parse(localStorage.getItem("nudge_step_index"));
+    const sessionCountRaw = JSON.parse(localStorage.getItem("nudge_session_count"));
+    const historyRaw = localStorage.getItem("nudge_history");
+    const step = localStorage.getItem("nudge_paused_step");
+    const taskName = localStorage.getItem("nudge_paused_task");
+    const note = localStorage.getItem("nudge_paused_note");
+    const progress = localStorage.getItem("nudge_paused_progress");
+
+    return {
+      tasks: Array.isArray(tasks) ? tasks : [],
+      screen: resolveInitialScreen(tasks, savedScreen),
+      defaultEnergy: localStorage.getItem("nudge_energy") || "low",
+      defaultTime: localStorage.getItem("nudge_time") || "10 min",
+      stepIndex: Number.isInteger(stepIndexRaw) ? stepIndexRaw : 0,
+      sessionCount: Number.isInteger(sessionCountRaw) ? sessionCountRaw : 0,
+      completedSteps: JSON.parse(localStorage.getItem("nudge_completed_steps")) || [],
+      granularity: localStorage.getItem("nudge_granularity") || "balanced",
+      completedHistory: historyRaw ? JSON.parse(historyRaw) : [],
+      pausedStep: step ? JSON.parse(step) : null,
+      pausedTaskName: taskName ? JSON.parse(taskName) : "",
+      pausedNote: note ? JSON.parse(note) : "",
+      pausedProgress: progress ? JSON.parse(progress) : "",
+    };
+  } catch {
+    return {
+      tasks: [],
+      screen: "onboarding",
+      defaultEnergy: "low",
+      defaultTime: "10 min",
+      stepIndex: 0,
+      sessionCount: 0,
+      completedSteps: [],
+      granularity: "balanced",
+      completedHistory: [],
+      pausedStep: null,
+      pausedTaskName: "",
+      pausedNote: "",
+      pausedProgress: "",
+    };
+  }
+}
+
+export default function NudgeApp() {
+  const [hydrated, setHydrated] = useState(false);
+  const [isDark, setIsDark] = useState(false);
+  const [screen, setScreen] = useState("splash");
+  const [tasks, setTasks] = useState([]);
+  const [defaultEnergy, setDefaultEnergy] = useState("low");
+  const [defaultTime, setDefaultTime] = useState("10 min");
+  const [stepIndex, setStepIndex] = useState(0);
+  const [sessionCount, setSessionCount] = useState(0);
+  const [completedSteps, setCompletedSteps] = useState([]);
+  const [granularity, setGranularity] = useState("balanced");
   const [pausedStep, setPausedStep] = useState(null);
   const [pausedTaskName, setPausedTaskName] = useState("");
   const [pausedNote, setPausedNote] = useState("");
   const [pausedProgress, setPausedProgress] = useState("");
   const [stepLinks, setStepLinks] = useState({});
   const [deferredNote, setDeferredNote] = useState("");
-  const [completedHistory, setCompletedHistory] = useState(() => {
-    if (typeof window === "undefined") return [];
-    try {
-      const raw = localStorage.getItem("nudge_history");
-      return raw ? JSON.parse(raw) : [];
-    } catch { return []; }
-  });
+  const [completedHistory, setCompletedHistory] = useState([]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    localStorage.setItem("nudge_history", JSON.stringify(completedHistory));
-  }, [completedHistory]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    localStorage.setItem("nudge_tasks", JSON.stringify(tasks));
-  }, [tasks]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    localStorage.setItem("nudge_step_index", JSON.stringify(stepIndex));
-  }, [stepIndex]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    localStorage.setItem("nudge_session_count", JSON.stringify(sessionCount));
-  }, [sessionCount]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    localStorage.setItem("nudge_energy", defaultEnergy);
-  }, [defaultEnergy]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    localStorage.setItem("nudge_time", defaultTime);
-  }, [defaultTime]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    localStorage.setItem("nudge_granularity", granularity);
-  }, [granularity]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    localStorage.setItem("nudge_completed_steps", JSON.stringify(completedSteps));
-  }, [completedSteps]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    localStorage.setItem("nudge_screen", screen);
-  }, [screen]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const step = localStorage.getItem("nudge_paused_step");
-      if (step) setPausedStep(JSON.parse(step));
-      const taskName = localStorage.getItem("nudge_paused_task");
-      if (taskName) setPausedTaskName(JSON.parse(taskName));
-      const note = localStorage.getItem("nudge_paused_note");
-      if (note) setPausedNote(JSON.parse(note));
-      const progress = localStorage.getItem("nudge_paused_progress");
-      if (progress) setPausedProgress(JSON.parse(progress));
-    } catch { /* ignore corrupt pause state */ }
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    setIsDark(mq.matches);
+    const onChange = (e) => setIsDark(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
   }, []);
+
+  useEffect(() => {
+    const saved = loadPersistedAppState();
+    setTasks(saved.tasks);
+    setScreen(saved.screen);
+    setDefaultEnergy(saved.defaultEnergy);
+    setDefaultTime(saved.defaultTime);
+    setStepIndex(saved.stepIndex);
+    setSessionCount(saved.sessionCount);
+    setCompletedSteps(saved.completedSteps);
+    setGranularity(saved.granularity);
+    setCompletedHistory(saved.completedHistory);
+    setPausedStep(saved.pausedStep);
+    setPausedTaskName(saved.pausedTaskName);
+    setPausedNote(saved.pausedNote);
+    setPausedProgress(saved.pausedProgress);
+    setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    localStorage.setItem("nudge_history", JSON.stringify(completedHistory));
+  }, [completedHistory, hydrated]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    localStorage.setItem("nudge_tasks", JSON.stringify(tasks));
+  }, [tasks, hydrated]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    localStorage.setItem("nudge_step_index", JSON.stringify(stepIndex));
+  }, [stepIndex, hydrated]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    localStorage.setItem("nudge_session_count", JSON.stringify(sessionCount));
+  }, [sessionCount, hydrated]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    localStorage.setItem("nudge_energy", defaultEnergy);
+  }, [defaultEnergy, hydrated]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    localStorage.setItem("nudge_time", defaultTime);
+  }, [defaultTime, hydrated]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    localStorage.setItem("nudge_granularity", granularity);
+  }, [granularity, hydrated]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    localStorage.setItem("nudge_completed_steps", JSON.stringify(completedSteps));
+  }, [completedSteps, hydrated]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    localStorage.setItem("nudge_screen", screen);
+  }, [screen, hydrated]);
 
   const [homeReason, setHomeReason] = useState("list");
   const prevScreen = useRef(null);
@@ -2207,7 +2702,7 @@ export default function NudgeApp() {
     ready: <ReadyScreen next={() => go("suggestion")} back={() => go("setup")} setGranularity={setGranularity} />,
     suggestion: <SuggestionScreen next={() => { if (currentStep) go("inprogress"); }} onTooHard={() => { if (currentStep) go("simplify"); }} onAnother={() => go("allsteps")} onSkip={() => setStepIndex(i => (steps.length ? (i + 1) % steps.length : 0))} onExit={() => goHome("exit")} task={task} stepIndex={stepIndex} steps={steps} energy={defaultEnergy} loading={stepsLoading} deferredNote={deferredNote} onDismissDeferNote={() => setDeferredNote("")} />,
     allsteps: <AllStepsScreen back={() => go("suggestion")} steps={steps} task={task} stepIndex={stepIndex} onPick={i => { setStepIndex(i); go("suggestion"); }} loading={stepsLoading} stepLinks={stepLinks} onSetStepLink={(i, url) => setStepLinks(p => ({ ...p, [i]: url }))} />,
-    inprogress: <InProgressScreen step={currentStep} resourceLink={resourceLink} onDone={handleDone} onPause={() => { setPausedStep(currentStep); go("pause"); }} onTooMuch={() => go("simplify")} onDefer={(note) => { setDeferredNote(note); go("suggestion"); }} />,
+    inprogress: <InProgressScreen step={currentStep} resourceLink={resourceLink} stepsLoading={stepsLoading} onDone={handleDone} onPause={() => { setPausedStep(currentStep); go("pause"); }} onTooMuch={() => go("simplify")} onDefer={(note) => { setDeferredNote(note); go("suggestion"); }} />,
     simplify: <SimplifyScreen next={() => go("inprogress")} onStillTooMuch={() => go("suggestion")} step={currentStep} />,
     pause: <PauseScreen
       onSaveAndPause={(data) => { savePauseState(data); go("return_paused"); }}
