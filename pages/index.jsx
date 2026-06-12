@@ -1064,6 +1064,10 @@ const GATHER_THEME = {
   dark: {
     purple: [124, 111, 205],
     mint: [111, 208, 172],
+    tide: [111, 208, 172],
+    interior: [26, 45, 36],
+    checkStroke: [168, 230, 205],
+    skipCompleteTideFill: true,
     text: "#EDEAE4",
     loadingHint: C.accent300,
     a: {
@@ -1075,21 +1079,23 @@ const GATHER_THEME = {
       gatherGlow: 0.24,
       gatherAlphaMin: 0.25,
       gatherAlphaRange: 0.55,
-      fillInner: 0.36,
-      fillHold: 0.20,
-      fillComplete: 0.24,
-      fillMid: 0.18,
-      fillHoldMid: 0.10,
+      fillInner: 0.12,
+      fillHold: 0.06,
+      fillComplete: 0,
+      fillMid: 0.06,
+      fillHoldMid: 0.03,
       strokeCircle: 0.68,
-      tideLayer0: 0.60,
-      tideLayer1: 0.36,
-      tideHoldBoost: 0.30,
-      tideCrest: 0.95,
-      tideRingBase: 0.65,
-      tideRingHold: 0.55,
-      completeTide0: 0.64,
-      completeTide1: 0.36,
-      completeRing: 0.9,
+      tideLayer0: 0.30,
+      tideLayer1: 0.15,
+      tideHoldBoost: 0.05,
+      tideCrest: 0.72,
+      tideRingBase: 0.55,
+      tideRingHold: 0.30,
+      completeGlowInner: 0.10,
+      completeGlowMid: 0.05,
+      completeTide0: 0.15,
+      completeTide1: 0.08,
+      completeRing: 0.88,
       bloom: 0.75,
       check: 0.95,
       droplet: 0.35,
@@ -1371,23 +1377,43 @@ function GatherBloomCircle({ sessionId, stepText, loading, onComplete, resourceL
       const ca = circleAlpha.current;
 
       if (ca > 0.02) {
-        const fg = ctx.createRadialGradient(cx - R * 0.25, cy - R * 0.3, R * 0.1, cx, cy, R * 1.12);
-        fg.addColorStop(0, `rgba(${cr},${cg},${cb},${(a.fillInner + hv * a.fillHold + (ph === "complete" ? a.fillComplete : 0)) * ca})`);
-        fg.addColorStop(0.7, `rgba(${cr},${cg},${cb},${(a.fillMid + hv * a.fillHoldMid) * ca})`);
-        fg.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
-        ctx.beginPath();
-        ctx.arc(cx, cy, R, 0, Math.PI * 2);
-        ctx.fillStyle = fg;
-        ctx.fill();
-        ctx.strokeStyle = `rgba(${cr},${cg},${cb},${a.strokeCircle * ca})`;
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
+        if (ph === "complete" && th.interior) {
+          const [ir, ig, ib] = th.interior;
+          const [mr, mg, mb] = th.mint;
+          const fg = ctx.createRadialGradient(cx - R * 0.2, cy - R * 0.25, R * 0.05, cx, cy, R * 1.05);
+          fg.addColorStop(0, `rgba(${mr},${mg},${mb},${a.completeGlowInner * ca})`);
+          fg.addColorStop(0.5, `rgba(${mr},${mg},${mb},${a.completeGlowMid * ca})`);
+          fg.addColorStop(0.82, `rgba(${ir},${ig},${ib},${0.92 * ca})`);
+          fg.addColorStop(1, `rgba(${ir},${ig},${ib},0)`);
+          ctx.beginPath();
+          ctx.arc(cx, cy, R, 0, Math.PI * 2);
+          ctx.fillStyle = fg;
+          ctx.fill();
+          ctx.strokeStyle = `rgba(${mr},${mg},${mb},${a.completeRing * ca})`;
+          ctx.lineWidth = 2.5;
+          ctx.stroke();
+        } else {
+          const fg = ctx.createRadialGradient(cx - R * 0.25, cy - R * 0.3, R * 0.1, cx, cy, R * 1.12);
+          fg.addColorStop(0, `rgba(${cr},${cg},${cb},${(a.fillInner + hv * a.fillHold + (ph === "complete" ? a.fillComplete : 0)) * ca})`);
+          fg.addColorStop(0.7, `rgba(${cr},${cg},${cb},${(a.fillMid + hv * a.fillHoldMid) * ca})`);
+          fg.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
+          ctx.beginPath();
+          ctx.arc(cx, cy, R, 0, Math.PI * 2);
+          ctx.fillStyle = fg;
+          ctx.fill();
+          ctx.strokeStyle = `rgba(${cr},${cg},${cb},${a.strokeCircle * ca})`;
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+        }
       }
+
+      const tideRgb = (holdMix) =>
+        th.tide ?? mixCol(th.purple, th.mint, holdMix);
 
       if (ph === "focus" && hv > 0.005) {
         const waveAmp = 4.5 * (1 - hv * 0.5);
         const level = cy + R - hv * (R * 2 + waveAmp * 2 + 16);
-        const tideCol = mixCol(th.purple, th.mint, hv);
+        const tideCol = tideRgb(hv);
         ctx.save();
         ctx.beginPath();
         ctx.arc(cx, cy, R - 1, 0, Math.PI * 2);
@@ -1444,10 +1470,10 @@ function GatherBloomCircle({ sessionId, stepText, loading, onComplete, resourceL
         ctx.stroke();
       }
 
-      if (ph === "complete") {
+      if (ph === "complete" && !th.skipCompleteTideFill) {
         const settle = Math.min(1, since / 1.5);
         const waveAmp = 4.5 * (1 - settle);
-        const tideCol = mixCol(th.purple, th.mint, Math.min(1, 0.6 + settle * 0.4));
+        const tideCol = tideRgb(Math.min(1, 0.6 + settle * 0.4));
         ctx.save();
         ctx.beginPath();
         ctx.arc(cx, cy, R - 1, 0, Math.PI * 2);
@@ -1501,7 +1527,8 @@ function GatherBloomCircle({ sessionId, stepText, loading, onComplete, resourceL
           const ease = 1 - Math.pow(1 - k, 3);
           ctx.save();
           ctx.translate(cx, cy);
-          ctx.strokeStyle = `rgba(${th.mint[0]},${th.mint[1]},${th.mint[2]},${a.check})`;
+          const [ckr, ckg, ckb] = th.checkStroke ?? th.mint;
+          ctx.strokeStyle = `rgba(${ckr},${ckg},${ckb},${a.check})`;
           ctx.lineWidth = 5.5;
           ctx.lineCap = "round";
           ctx.lineJoin = "round";
