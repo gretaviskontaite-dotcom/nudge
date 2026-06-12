@@ -762,7 +762,7 @@ function ReadyScreen({ next, back, setGranularity }) {
   );
 }
 
-function LoadingStepCard() {
+function LoadingStepCard({ style = {} }) {
   const line = (extra = {}) => (
     <div style={{
       height: 14, borderRadius: 7, background: C.neutral200,
@@ -771,7 +771,7 @@ function LoadingStepCard() {
     }} />
   );
   return (
-    <Card style={{ marginBottom: 28 }}>
+    <Card style={{ marginBottom: 0, ...style }}>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
         {line({ width: 72 })}
         {line({ width: 48 })}
@@ -788,6 +788,13 @@ function LoadingStepCard() {
   );
 }
 
+const SUGGESTION_FADE_MS = 300;
+const SUGGESTION_STAGGER_MS = 150;
+const SUGGESTION_CARD_SLOT_MIN_H = 158;
+const SUGGESTION_PROGRESS_H = 52;
+const SUGGESTION_SEE_ALL_H = 38;
+const SUGGESTION_ACTIONS_H = BTN_H * 2 + 10;
+
 function SuggestionScreen({ next, onTooHard, onAnother, onSkip, onExit, task, stepIndex, steps, energy, loading, deferredNote, onDismissDeferNote }) {
   const isDark = useContext(IsDarkContext);
   const step = steps[stepIndex] || steps[0];
@@ -795,6 +802,8 @@ function SuggestionScreen({ next, onTooHard, onAnother, onSkip, onExit, task, st
   const stepReady = !loading && steps.length > 0 && !!step?.text;
   const pct = stepReady ? ((stepIndex + 1) / total) * 100 : 0;
   const taskLabel = task.length > 18 ? task.slice(0, 16) + "…" : task.toUpperCase();
+  const fadeBelow = (delayMs) =>
+    `opacity ${SUGGESTION_FADE_MS}ms ease ${delayMs}ms`;
   return (
     <>
       {deferredNote ? (
@@ -821,79 +830,117 @@ function SuggestionScreen({ next, onTooHard, onAnother, onSkip, onExit, task, st
         }}>✕</button>
       </div>
 
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", gap: 0 }}>
-        {loading ? (
-          <LoadingStepCard />
-        ) : (
-          <Card style={{
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", minHeight: 0 }}>
+        <div style={{ width: "100%" }}>
+          <div style={{
+            position: "relative",
+            minHeight: SUGGESTION_CARD_SLOT_MIN_H,
             marginBottom: 28,
-            background: isDark ? "#2D2A45" : "linear-gradient(145deg, #FDFCF9 0%, #F5F0FF 60%, #FDF8F0 100%)",
-            transition: "background 0.8s ease",
-            boxShadow: "0 2px 8px rgba(100,90,180,0.08), 0 16px 48px rgba(100,90,180,0.08)",
-            border: isDark ? "1px solid rgba(124,111,205,0.2)" : "1px solid rgba(124,111,205,0.12)",
           }}>
-            {/* Tags row */}
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16, alignItems: "center" }}>
-              <span style={{ ...T.label, color: C.accent500 }}>{taskLabel}</span>
-              <span style={{ color: C.accent200 }}>•</span>
-              <span style={{ ...T.label, color: C.accent500 }}>{step.mins} MIN</span>
-              <span style={{ color: C.accent200 }}>•</span>
-              <span style={{ ...T.label, color: C.accent500 }}>{energy.toUpperCase()} ENERGY</span>
+            <div style={{
+              position: "absolute",
+              inset: 0,
+              opacity: stepReady ? 0 : 1,
+              transition: `opacity ${SUGGESTION_FADE_MS}ms ease`,
+              pointerEvents: "none",
+            }}>
+              <LoadingStepCard />
             </div>
-
-            <div style={{ ...T.subtitle, color: "var(--n9)", fontWeight: 700, marginBottom: 20 }}>{step.text}</div>
-
-            <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-              {step.tags.map((t, i) => <Tag key={t} label={t} green={i === 1 || t === "no prep needed"} />)}
+            <div style={{
+              opacity: stepReady ? 1 : 0,
+              transition: `opacity ${SUGGESTION_FADE_MS}ms ease`,
+              pointerEvents: stepReady ? "auto" : "none",
+            }}>
+              <Card style={{
+                marginBottom: 0,
+                background: isDark ? "#2D2A45" : "linear-gradient(145deg, #FDFCF9 0%, #F5F0FF 60%, #FDF8F0 100%)",
+                boxShadow: "0 2px 8px rgba(100,90,180,0.08), 0 16px 48px rgba(100,90,180,0.08)",
+                border: isDark ? "1px solid rgba(124,111,205,0.2)" : "1px solid rgba(124,111,205,0.12)",
+              }}>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16, alignItems: "center" }}>
+                  <span style={{ ...T.label, color: C.accent500 }}>{taskLabel}</span>
+                  <span style={{ color: C.accent200 }}>•</span>
+                  <span style={{ ...T.label, color: C.accent500 }}>{step?.mins ?? 0} MIN</span>
+                  <span style={{ color: C.accent200 }}>•</span>
+                  <span style={{ ...T.label, color: C.accent500 }}>{energy.toUpperCase()} ENERGY</span>
+                </div>
+                <div style={{ ...T.subtitle, color: "var(--n9)", fontWeight: 700, marginBottom: 20 }}>{step?.text ?? ""}</div>
+                <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+                  {(step?.tags ?? []).map((t, i) => <Tag key={t} label={t} green={i === 1 || t === "no prep needed"} />)}
+                </div>
+              </Card>
             </div>
-          </Card>
-        )}
+          </div>
 
-        {/* Progress bar + step counter */}
-        {stepReady && (
-          <>
+          <div style={{
+            height: SUGGESTION_PROGRESS_H,
+            opacity: stepReady ? 1 : 0,
+            transition: fadeBelow(SUGGESTION_STAGGER_MS),
+            pointerEvents: stepReady ? "auto" : "none",
+          }}>
             <div style={{ marginBottom: 6 }}>
               <div style={{ height: 4, borderRadius: 4, background: C.neutral200, overflow: "hidden" }}>
-                <div style={{ height: "100%", width: `${pct}%`, background: C.accent500, borderRadius: 4, transition: "width 0.4s ease" }} />
+                <div style={{
+                  height: "100%",
+                  width: `${pct}%`,
+                  background: C.accent500,
+                  borderRadius: 4,
+                  transition: stepReady ? "width 0.4s ease" : "none",
+                }} />
               </div>
             </div>
-            <div style={{ ...T.hint, fontSize: 14, textAlign: "right", marginBottom: 28 }}>
+            <div style={{ ...T.hint, fontSize: 14, textAlign: "right" }}>
               step {stepIndex + 1} of {total}
             </div>
-          </>
-        )}
+          </div>
 
-        {!stepReady && (
-          <div style={{ ...T.hint, textAlign: "center", marginBottom: 28 }}>Finding your first step…</div>
-        )}
+          <div style={{
+            height: SUGGESTION_SEE_ALL_H,
+            display: "flex",
+            alignItems: "flex-start",
+            justifyContent: "center",
+            opacity: stepReady ? 1 : 0,
+            transition: fadeBelow(SUGGESTION_STAGGER_MS + 50),
+            pointerEvents: stepReady ? "auto" : "none",
+          }}>
+            <button
+              type="button"
+              onClick={onAnother}
+              tabIndex={stepReady ? 0 : -1}
+              aria-hidden={!stepReady}
+              style={{
+                background: "none", border: "none", color: C.accent500,
+                ...T.hint, fontSize: 14, cursor: "pointer",
+                fontFamily: "Inter", textDecoration: "underline",
+                padding: 0, display: "flex", alignItems: "center",
+                gap: 6,
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
+                <rect x="1" y="1" width="12" height="3" rx="1" fill={C.accent500} fillOpacity="0.4"/>
+                <rect x="1" y="5.5" width="12" height="3" rx="1" fill={C.accent500} fillOpacity="0.7"/>
+                <rect x="1" y="10" width="12" height="3" rx="1" fill={C.accent500}/>
+              </svg>
+              see all steps
+            </button>
+          </div>
 
-        {stepReady && (
-          <>
-        {/* See all steps */}
-        <button onClick={onAnother} style={{
-          background: "none", border: "none", color: C.accent500,
-          ...T.hint, fontSize: 14, cursor: "pointer",
-          fontFamily: "Inter", textDecoration: "underline",
-          marginBottom: 24, padding: 0, display: "flex", alignItems: "center",
-          justifyContent: "center", gap: 6, width: "100%",
-        }}>
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <rect x="1" y="1" width="12" height="3" rx="1" fill={C.accent500} fillOpacity="0.4"/>
-            <rect x="1" y="5.5" width="12" height="3" rx="1" fill={C.accent500} fillOpacity="0.7"/>
-            <rect x="1" y="10" width="12" height="3" rx="1" fill={C.accent500}/>
-          </svg>
-          see all steps
-        </button>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <BtnPrimary onClick={next}>I can do that</BtnPrimary>
-          <div style={{ display: "flex", gap: 10 }}>
-            <BtnAccent onClick={onTooHard}>Too hard</BtnAccent>
-            <BtnAccent onClick={onAnother}>Another</BtnAccent>
+          <div style={{
+            height: SUGGESTION_ACTIONS_H,
+            display: "flex",
+            flexDirection: "column",
+            gap: 10,
+            opacity: stepReady ? 1 : 0,
+            transition: fadeBelow(SUGGESTION_STAGGER_MS + 100),
+            pointerEvents: stepReady ? "auto" : "none",
+          }}>
+            <BtnPrimary onClick={next} disabled={!stepReady}>I can do that</BtnPrimary>
+            <div style={{ display: "flex", gap: 10 }}>
+              <BtnAccent onClick={onTooHard}>Too hard</BtnAccent>
+              <BtnAccent onClick={onAnother}>Another</BtnAccent>
+            </div>
           </div>
         </div>
-          </>
-        )}
       </div>
     </>
   );
@@ -1809,28 +1856,203 @@ function InProgressScreen({ gatherPhase, onGatherPhaseChange, onDone, onPause, o
   );
 }
 
+const SIMPLIFY_TOTAL_MS = 1550;
+const SIMPLIFY_HOLD_MS = 580;
+const SIMPLIFY_CONDENSE_MS = 620;
+const SIMPLIFY_REVEAL_START_MS = 860;
+const SIMPLIFY_REVEAL_MS = 520;
+
+function simplifyClamp(v, lo = 0, hi = 1) {
+  return Math.max(lo, Math.min(hi, v));
+}
+
+function simplifyLerp(a, b, t) {
+  return a + (b - a) * t;
+}
+
+function simplifyEaseInOutCubic(t) {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+function simplifyEaseOutQuart(t) {
+  return 1 - Math.pow(1 - t, 4);
+}
+
 function SimplifyScreen({ next, onStillTooMuch, step }) {
   const isDark = useContext(IsDarkContext);
+  const reducedMotion = typeof window !== "undefined"
+    && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const [progress, setProgress] = useState(reducedMotion ? 1 : 0);
+  const originalText = step?.text ?? "";
+  const smallerText = step?.tooHard ?? "";
+
+  useEffect(() => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setProgress(1);
+      return;
+    }
+    setProgress(0);
+    const start = performance.now();
+    let raf = 0;
+    const tick = (now) => {
+      const p = simplifyClamp((now - start) / SIMPLIFY_TOTAL_MS);
+      setProgress(p);
+      if (p < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [originalText]);
+
+  const elapsed = progress * SIMPLIFY_TOTAL_MS;
+  const condenseT = simplifyEaseInOutCubic(
+    simplifyClamp((elapsed - SIMPLIFY_HOLD_MS) / SIMPLIFY_CONDENSE_MS)
+  );
+  const revealT = simplifyEaseOutQuart(
+    simplifyClamp((elapsed - SIMPLIFY_REVEAL_START_MS) / SIMPLIFY_REVEAL_MS)
+  );
+  const strikeT = simplifyEaseInOutCubic(simplifyClamp((condenseT - 0.18) / 0.82));
+
+  const introBg = isDark ? "45,42,69" : "255,248,236";
+  const introBorder = isDark ? "124,111,205" : "201,162,74";
+  const cardScale = simplifyLerp(1, 0.975, condenseT);
+  const cardPad = simplifyLerp(CARD_PAD, 0, condenseT);
+  const cardRadius = simplifyLerp(CARD_RADIUS, 6, condenseT);
+  const cardBgAlpha = simplifyLerp(1, 0, condenseT);
+  const cardBorderAlpha = simplifyLerp(isDark ? 0.18 : 0.18, 0, condenseT);
+  const textSize = simplifyLerp(18, 14, condenseT);
+  const textWeight = simplifyLerp(700, 500, condenseT);
+  const mutedLight = { r: 107, g: 107, b: 107 };
+  const mutedDark = { r: 122, g: 122, b: 136 };
+  const textRgb = isDark
+    ? {
+        r: simplifyLerp(240, mutedDark.r, condenseT),
+        g: simplifyLerp(238, mutedDark.g, condenseT),
+        b: simplifyLerp(248, mutedDark.b, condenseT),
+      }
+    : {
+        r: simplifyLerp(42, mutedLight.r, condenseT),
+        g: simplifyLerp(39, mutedLight.g, condenseT),
+        b: simplifyLerp(47, mutedLight.b, condenseT),
+      };
+  const strikeColor = isDark ? "#7A7A88" : C.neutral500;
+  const smallerCardStyle = isDark
+    ? {
+        background: "#1A2D24",
+        border: `1px solid rgba(111,208,172,${simplifyLerp(0, 0.42, revealT)})`,
+        boxShadow: [
+          `0 0 0 1px rgba(111,208,172,${simplifyLerp(0, 0.12, revealT)})`,
+          `0 10px 36px rgba(111,208,172,${simplifyLerp(0, 0.14, revealT)})`,
+          `0 0 56px rgba(111,208,172,${simplifyLerp(0, 0.08, revealT)})`,
+        ].join(", "),
+      }
+    : {
+        background: C.success100,
+        border: `1px solid rgba(107,191,154,${simplifyLerp(0, 0.38, revealT)})`,
+        boxShadow: [
+          `0 0 0 1px rgba(107,191,154,${simplifyLerp(0, 0.1, revealT)})`,
+          `0 10px 32px rgba(107,191,154,${simplifyLerp(0, 0.12, revealT)})`,
+          `0 0 48px rgba(95,191,155,${simplifyLerp(0, 0.08, revealT)})`,
+        ].join(", "),
+      };
+
   return (
     <>
-      <Label color={C.warning500}>Let's Simplify</Label>
-      <div style={{ ...T.heading, color: "var(--n9)", marginBottom: 8 }}>That one felt like too much?</div>
-      <div style={{ ...T.small, color: "var(--n7)", marginBottom: 0 }}>No problem. Here's something smaller.</div>
+      <div style={{ marginBottom: 16, flexShrink: 0 }}>
+        <Label color={C.warning500}>Let's Simplify</Label>
+        <div style={{ ...T.heading, color: "var(--n9)", marginBottom: 8 }}>That one felt like too much?</div>
+        <div style={{ ...T.small, color: "var(--n7)", marginBottom: 0 }}>No problem. Here's something smaller.</div>
+      </div>
 
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", gap: 0 }}>
-        {/* Original — struck through */}
-        <Card style={{ background: isDark ? "#3A2D1A" : C.warning100, marginBottom: 16 }}>
-          <div style={{ ...T.label, color: C.warning500, marginBottom: 10 }}>Original</div>
-          <div style={{ ...T.small, color: "var(--n9)", textDecoration: "line-through", lineHeight: 1.5 }}>{step?.text ?? ""}</div>
-        </Card>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, width: "100%" }}>
+        <div style={{ flex: 1, minHeight: 0 }} />
+        <div style={{
+          width: "100%",
+          maxWidth: GATHER_CANVAS_W,
+          margin: "0 auto",
+          flexShrink: 0,
+          display: "flex",
+          flexDirection: "column",
+          gap: 14,
+        }}>
+          <div style={{
+            transform: `scale(${cardScale})`,
+            transformOrigin: "center top",
+            willChange: reducedMotion ? undefined : "transform",
+          }}>
+            <div style={{
+              borderRadius: cardRadius,
+              padding: cardPad,
+              background: `rgba(${introBg}, ${cardBgAlpha})`,
+              border: cardBorderAlpha > 0.01
+                ? `1px solid rgba(${introBorder}, ${cardBorderAlpha})`
+                : "1px solid transparent",
+            }}>
+              <div style={{
+                position: "relative",
+                fontFamily: "Inter",
+                fontSize: textSize,
+                fontWeight: textWeight,
+                lineHeight: 1.45,
+                color: `rgb(${Math.round(textRgb.r)}, ${Math.round(textRgb.g)}, ${Math.round(textRgb.b)})`,
+              }}>
+                {originalText}
+                <span
+                  aria-hidden
+                  style={{
+                    position: "absolute",
+                    left: 0,
+                    right: 0,
+                    top: "54%",
+                    height: 1.5,
+                    borderRadius: 1,
+                    background: strikeColor,
+                    opacity: strikeT,
+                    transform: `scaleX(${strikeT})`,
+                    transformOrigin: "left center",
+                  }}
+                />
+              </div>
+            </div>
+          </div>
 
-        {/* Smaller version */}
-        <Card style={{ background: isDark ? "#1A2D24" : C.success100, marginBottom: 40 }}>
-          <div style={{ ...T.label, color: C.success500, marginBottom: 10 }}>Smaller Version</div>
-          <div style={{ ...T.subtitle, color: "var(--n9)", lineHeight: 1.4 }}>{step?.tooHard ?? ""}</div>
-        </Card>
+          <div style={{
+            maxHeight: `${simplifyLerp(0, 260, revealT)}px`,
+            overflow: "hidden",
+            opacity: revealT,
+            pointerEvents: revealT > 0.35 ? "auto" : "none",
+            willChange: reducedMotion ? undefined : "opacity, max-height",
+          }}>
+            <div style={{
+              transform: `translateY(${simplifyLerp(14, 0, revealT)}px) scale(${simplifyLerp(0.985, 1, revealT)})`,
+              transformOrigin: "center top",
+              willChange: reducedMotion ? undefined : "transform",
+            }}>
+            <Card style={{
+              marginBottom: 0,
+              ...smallerCardStyle,
+            }}>
+              <div style={{
+                ...T.subtitle,
+                color: isDark ? "#EDEAE4" : "var(--n9)",
+                fontWeight: 700,
+                lineHeight: 1.45,
+              }}>
+                {smallerText}
+              </div>
+            </Card>
+            </div>
+          </div>
+        </div>
+        <div style={{ flex: 1, minHeight: FOCUS_CAPTION_MIN_H, width: "100%" }} />
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{
+          flexShrink: 0,
+          minHeight: FOCUS_ACTIONS_H,
+          display: "flex",
+          flexDirection: "column",
+          gap: 12,
+          justifyContent: "flex-end",
+        }}>
           <BtnPrimary onClick={next}>That feels doable</BtnPrimary>
           <BtnSecondary onClick={onStillTooMuch || next}>Still too much</BtnSecondary>
         </div>
