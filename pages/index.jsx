@@ -1018,15 +1018,88 @@ function AllStepsScreen({ back, steps, stepIndex, onPick, task, loading, stepLin
   );
 }
 
-const GATHER_PURPLE = [124, 111, 205];
-const GATHER_MINT = [95, 191, 155];
 const GATHER_HOLD_MS = 850;
 const GATHER_CANVAS_W = 390;
 const GATHER_CANVAS_H = 330;
 const GATHER_CIRCLE_CY = 165;
 const GATHER_CIRCLE_R = 102;
 
-function gatherTaskTextStyle(text, isDark) {
+const GATHER_THEME = {
+  light: {
+    purple: [124, 111, 205],
+    mint: [95, 191, 155],
+    text: "#3A372F",
+    loadingHint: "#9D93D8",
+    a: {
+      haloBase: 0.04,
+      haloBreathe: 0.06,
+      haloHold: 0.05,
+      haloMid: 0.008,
+      gatherIdle: 0.15,
+      gatherGlow: 0.12,
+      gatherAlphaMin: 0.25,
+      gatherAlphaRange: 0.55,
+      fillInner: 0.18,
+      fillHold: 0.10,
+      fillComplete: 0.12,
+      fillMid: 0.09,
+      fillHoldMid: 0.05,
+      strokeCircle: 0.40,
+      tideLayer0: 0.30,
+      tideLayer1: 0.18,
+      tideHoldBoost: 0.15,
+      tideCrest: 0.85,
+      tideRingBase: 0.4,
+      tideRingHold: 0.4,
+      completeTide0: 0.32,
+      completeTide1: 0.18,
+      completeRing: 0.7,
+      bloom: 0.6,
+      check: 0.95,
+      droplet: 0.35,
+    },
+  },
+  dark: {
+    purple: [124, 111, 205],
+    mint: [111, 208, 172],
+    text: "#EDEAE4",
+    loadingHint: C.accent300,
+    a: {
+      haloBase: 0.08,
+      haloBreathe: 0.12,
+      haloHold: 0.10,
+      haloMid: 0.016,
+      gatherIdle: 0.30,
+      gatherGlow: 0.24,
+      gatherAlphaMin: 0.25,
+      gatherAlphaRange: 0.55,
+      fillInner: 0.36,
+      fillHold: 0.20,
+      fillComplete: 0.24,
+      fillMid: 0.18,
+      fillHoldMid: 0.10,
+      strokeCircle: 0.68,
+      tideLayer0: 0.60,
+      tideLayer1: 0.36,
+      tideHoldBoost: 0.30,
+      tideCrest: 0.95,
+      tideRingBase: 0.65,
+      tideRingHold: 0.55,
+      completeTide0: 0.64,
+      completeTide1: 0.36,
+      completeRing: 0.9,
+      bloom: 0.75,
+      check: 0.95,
+      droplet: 0.35,
+    },
+  },
+};
+
+function getGatherTheme(isDark) {
+  return isDark ? GATHER_THEME.dark : GATHER_THEME.light;
+}
+
+function gatherTaskTextStyle(text, theme) {
   const len = (text || "").length;
   const fontSize =
     len <= 30 ? 18 :
@@ -1037,7 +1110,7 @@ function gatherTaskTextStyle(text, isDark) {
     margin: 0,
     position: "absolute",
     left: "50%",
-    top: GATHER_CIRCLE_CY,
+    top: `${(GATHER_CIRCLE_CY / GATHER_CANVAS_H) * 100}%`,
     transform: "translate(-50%, -50%)",
     width: 158,
     maxHeight: 150,
@@ -1045,13 +1118,17 @@ function gatherTaskTextStyle(text, isDark) {
     fontSize,
     lineHeight: 1.4,
     fontWeight: 600,
-    color: isDark ? "#F0EEF8" : "#3A372F",
+    color: theme.text,
     textAlign: "center",
     overflowWrap: "break-word",
   };
 }
 
-function GatherBloomCircle({ sessionId, stepText, loading, isDark, onComplete, resourceLink }) {
+function GatherBloomCircle({ sessionId, stepText, loading, onComplete, resourceLink }) {
+  const isDark = useContext(IsDarkContext);
+  const theme = getGatherTheme(isDark);
+  const themeRef = useRef(theme);
+  themeRef.current = theme;
   const displayText = stepText || "Your step is loading…";
   const [phase, setPhase] = useState("loading");
   const [runId, setRunId] = useState(0);
@@ -1096,7 +1173,7 @@ function GatherBloomCircle({ sessionId, stepText, loading, isDark, onComplete, r
 
   useEffect(() => {
     resetGatherAnimation();
-  }, [sessionId, stepText, resetGatherAnimation]);
+  }, [sessionId, resetGatherAnimation]);
 
   useEffect(() => {
     phaseRef.current = phase;
@@ -1176,8 +1253,8 @@ function GatherBloomCircle({ sessionId, stepText, loading, isDark, onComplete, r
     canvas.width = W * DPR;
     canvas.height = H * DPR;
     canvas.style.width = "100%";
-    canvas.style.height = H + "px";
-    ctx.scale(DPR, DPR);
+    canvas.style.height = "100%";
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
 
     let raf;
     const cx = W / 2, cy = GATHER_CIRCLE_CY;
@@ -1206,7 +1283,9 @@ function GatherBloomCircle({ sessionId, stepText, loading, isDark, onComplete, r
       const hv = hold.current.value;
 
       colorMix.current = lerp(colorMix.current, ph === "complete" ? 1 : hv * 0.35, 0.05);
-      const [cr, cg, cb] = mixCol(GATHER_PURPLE, GATHER_MINT, colorMix.current);
+      const th = themeRef.current;
+      const a = th.a;
+      const [cr, cg, cb] = mixCol(th.purple, th.mint, colorMix.current);
 
       ctx.clearRect(0, 0, W, H);
 
@@ -1230,8 +1309,8 @@ function GatherBloomCircle({ sessionId, stepText, loading, isDark, onComplete, r
       const haloGate = ph === "loading" ? circleAlpha.current : 1;
       const haloR = R + 52;
       const halo = ctx.createRadialGradient(cx, cy, R * 0.55, cx, cy, haloR);
-      halo.addColorStop(0, `rgba(${cr},${cg},${cb},${(0.04 + breathe * 0.06 + hv * 0.05) * haloGate})`);
-      halo.addColorStop(0.55, `rgba(${cr},${cg},${cb},${0.008 * haloGate})`);
+      halo.addColorStop(0, `rgba(${cr},${cg},${cb},${(a.haloBase + breathe * a.haloBreathe + hv * a.haloHold) * haloGate})`);
+      halo.addColorStop(0.55, `rgba(${cr},${cg},${cb},${a.haloMid * haloGate})`);
       halo.addColorStop(1, "rgba(0,0,0,0)");
       ctx.beginPath();
       ctx.arc(cx, cy, haloR, 0, Math.PI * 2);
@@ -1240,14 +1319,17 @@ function GatherBloomCircle({ sessionId, stepText, loading, isDark, onComplete, r
 
       if (ph === "loading" && gatherers.current.length) {
         let arrivedCount = 0;
-        const landBoost = !loadingRef.current && stepTextRef.current ? 1.8 : 1;
+        const stillLoading = loadingRef.current;
+        const landBoost = stillLoading
+          ? Math.max(0.28, 0.72 / (1 + since * 0.18))
+          : 1.85;
         for (const g of gatherers.current) {
           const k = Math.min(1, Math.max(0, ((since - g.delay) / g.dur) * landBoost));
           if (k >= 1) { g.arrived = true; arrivedCount++; continue; }
           if (k <= 0) {
             ctx.beginPath();
             ctx.arc(g.x, g.y, g.size * 0.7, 0, Math.PI * 2);
-            ctx.fillStyle = `rgba(${GATHER_PURPLE[0]},${GATHER_PURPLE[1]},${GATHER_PURPLE[2]},0.15)`;
+            ctx.fillStyle = `rgba(${th.purple[0]},${th.purple[1]},${th.purple[2]},${a.gatherIdle})`;
             ctx.fill();
             continue;
           }
@@ -1256,18 +1338,21 @@ function GatherBloomCircle({ sessionId, stepText, loading, isDark, onComplete, r
           const my = (g.y + g.ty) / 2 + g.curve * 0.6;
           const x = (1 - e) * (1 - e) * g.x + 2 * (1 - e) * e * mx + e * e * g.tx;
           const y = (1 - e) * (1 - e) * g.y + 2 * (1 - e) * e * my + e * e * g.ty;
-          const alpha = 0.25 + e * 0.55;
+          const alpha = a.gatherAlphaMin + e * a.gatherAlphaRange;
           ctx.beginPath();
           ctx.arc(x, y, g.size * (0.6 + e * 0.4), 0, Math.PI * 2);
-          ctx.fillStyle = `rgba(${GATHER_PURPLE[0]},${GATHER_PURPLE[1]},${GATHER_PURPLE[2]},${alpha})`;
+          ctx.fillStyle = `rgba(${th.purple[0]},${th.purple[1]},${th.purple[2]},${alpha})`;
           ctx.fill();
           ctx.beginPath();
           ctx.arc(x, y, g.size * 2.4, 0, Math.PI * 2);
-          ctx.fillStyle = `rgba(${GATHER_PURPLE[0]},${GATHER_PURPLE[1]},${GATHER_PURPLE[2]},${alpha * 0.12})`;
+          ctx.fillStyle = `rgba(${th.purple[0]},${th.purple[1]},${th.purple[2]},${alpha * a.gatherGlow})`;
           ctx.fill();
         }
-        const target = gatherers.current.length ? arrivedCount / gatherers.current.length : 1;
-        const alphaSpeed = !loadingRef.current && stepTextRef.current ? 0.14 : 0.06;
+        const rawTarget = gatherers.current.length ? arrivedCount / gatherers.current.length : 1;
+        const target = stillLoading ? Math.min(rawTarget, 0.82) : rawTarget;
+        const alphaSpeed = stillLoading
+          ? Math.max(0.025, 0.055 / (1 + since * 0.1))
+          : 0.14;
         circleAlpha.current = lerp(circleAlpha.current, target, alphaSpeed);
         if (
           !loadingRef.current &&
@@ -1285,14 +1370,14 @@ function GatherBloomCircle({ sessionId, stepText, loading, isDark, onComplete, r
 
       if (ca > 0.02) {
         const fg = ctx.createRadialGradient(cx - R * 0.25, cy - R * 0.3, R * 0.1, cx, cy, R * 1.12);
-        fg.addColorStop(0, `rgba(${cr},${cg},${cb},${(0.18 + hv * 0.10 + (ph === "complete" ? 0.12 : 0)) * ca})`);
-        fg.addColorStop(0.7, `rgba(${cr},${cg},${cb},${(0.09 + hv * 0.05) * ca})`);
+        fg.addColorStop(0, `rgba(${cr},${cg},${cb},${(a.fillInner + hv * a.fillHold + (ph === "complete" ? a.fillComplete : 0)) * ca})`);
+        fg.addColorStop(0.7, `rgba(${cr},${cg},${cb},${(a.fillMid + hv * a.fillHoldMid) * ca})`);
         fg.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
         ctx.beginPath();
         ctx.arc(cx, cy, R, 0, Math.PI * 2);
         ctx.fillStyle = fg;
         ctx.fill();
-        ctx.strokeStyle = `rgba(${cr},${cg},${cb},${0.40 * ca})`;
+        ctx.strokeStyle = `rgba(${cr},${cg},${cb},${a.strokeCircle * ca})`;
         ctx.lineWidth = 1.5;
         ctx.stroke();
       }
@@ -1300,7 +1385,7 @@ function GatherBloomCircle({ sessionId, stepText, loading, isDark, onComplete, r
       if (ph === "focus" && hv > 0.005) {
         const waveAmp = 4.5 * (1 - hv * 0.5);
         const level = cy + R - hv * (R * 2 + waveAmp * 2 + 16);
-        const tideCol = mixCol(GATHER_PURPLE, GATHER_MINT, hv);
+        const tideCol = mixCol(th.purple, th.mint, hv);
         ctx.save();
         ctx.beginPath();
         ctx.arc(cx, cy, R - 1, 0, Math.PI * 2);
@@ -1320,8 +1405,8 @@ function GatherBloomCircle({ sessionId, stepText, loading, isDark, onComplete, r
           }
           ctx.lineTo(cx + R, cy + R + 4);
           ctx.closePath();
-          const a = layer === 0 ? 0.30 : 0.18;
-          ctx.fillStyle = `rgba(${tideCol[0]},${tideCol[1]},${tideCol[2]},${a + hv * 0.15})`;
+          const layerA = layer === 0 ? a.tideLayer0 : a.tideLayer1;
+          ctx.fillStyle = `rgba(${tideCol[0]},${tideCol[1]},${tideCol[2]},${layerA + hv * a.tideHoldBoost})`;
           ctx.fill();
         }
         ctx.beginPath();
@@ -1332,7 +1417,7 @@ function GatherBloomCircle({ sessionId, stepText, loading, isDark, onComplete, r
             Math.sin((x / 13) - t * 3.64) * waveAmp * 0.35;
           x === cx - R ? ctx.moveTo(x, wy) : ctx.lineTo(x, wy);
         }
-        ctx.strokeStyle = `rgba(${tideCol[0]},${tideCol[1]},${tideCol[2]},0.85)`;
+        ctx.strokeStyle = `rgba(${tideCol[0]},${tideCol[1]},${tideCol[2]},${a.tideCrest})`;
         ctx.lineWidth = 2;
         ctx.stroke();
         if (!reduceMotion.current && hv > 0.12) {
@@ -1344,7 +1429,7 @@ function GatherBloomCircle({ sessionId, stepText, loading, isDark, onComplete, r
             if (by > level + 4) {
               ctx.beginPath();
               ctx.arc(bx, by, 1.3 + (i % 3) * 0.6, 0, Math.PI * 2);
-              ctx.fillStyle = `rgba(255,255,255,${0.35 * (1 - cycle)})`;
+              ctx.fillStyle = `rgba(255,255,255,${a.droplet * (1 - cycle)})`;
               ctx.fill();
             }
           }
@@ -1352,7 +1437,7 @@ function GatherBloomCircle({ sessionId, stepText, loading, isDark, onComplete, r
         ctx.restore();
         ctx.beginPath();
         ctx.arc(cx, cy, R, 0, Math.PI * 2);
-        ctx.strokeStyle = `rgba(${tideCol[0]},${tideCol[1]},${tideCol[2]},${0.4 + hv * 0.4})`;
+        ctx.strokeStyle = `rgba(${tideCol[0]},${tideCol[1]},${tideCol[2]},${a.tideRingBase + hv * a.tideRingHold})`;
         ctx.lineWidth = 1.5 + hv * 1.5;
         ctx.stroke();
       }
@@ -1360,7 +1445,7 @@ function GatherBloomCircle({ sessionId, stepText, loading, isDark, onComplete, r
       if (ph === "complete") {
         const settle = Math.min(1, since / 1.5);
         const waveAmp = 4.5 * (1 - settle);
-        const tideCol = mixCol(GATHER_PURPLE, GATHER_MINT, Math.min(1, 0.6 + settle * 0.4));
+        const tideCol = mixCol(th.purple, th.mint, Math.min(1, 0.6 + settle * 0.4));
         ctx.save();
         ctx.beginPath();
         ctx.arc(cx, cy, R - 1, 0, Math.PI * 2);
@@ -1380,13 +1465,13 @@ function GatherBloomCircle({ sessionId, stepText, loading, isDark, onComplete, r
           }
           ctx.lineTo(cx + R, cy + R + 4);
           ctx.closePath();
-          ctx.fillStyle = `rgba(${tideCol[0]},${tideCol[1]},${tideCol[2]},${layer === 0 ? 0.32 : 0.18})`;
+          ctx.fillStyle = `rgba(${tideCol[0]},${tideCol[1]},${tideCol[2]},${layer === 0 ? a.completeTide0 : a.completeTide1})`;
           ctx.fill();
         }
         ctx.restore();
         ctx.beginPath();
         ctx.arc(cx, cy, R, 0, Math.PI * 2);
-        ctx.strokeStyle = `rgba(${tideCol[0]},${tideCol[1]},${tideCol[2]},0.7)`;
+        ctx.strokeStyle = `rgba(${tideCol[0]},${tideCol[1]},${tideCol[2]},${a.completeRing})`;
         ctx.lineWidth = 2.5;
         ctx.stroke();
       }
@@ -1400,10 +1485,10 @@ function GatherBloomCircle({ sessionId, stepText, loading, isDark, onComplete, r
           p.vx *= 0.985;
           p.vy *= 0.992;
           p.life -= p.decay;
-          const c = p.mint ? GATHER_MINT : GATHER_PURPLE;
+          const c = p.mint ? th.mint : th.purple;
           ctx.beginPath();
           ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
-          ctx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},${0.6 * p.life})`;
+          ctx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},${a.bloom * p.life})`;
           ctx.fill();
         }
       }
@@ -1414,7 +1499,7 @@ function GatherBloomCircle({ sessionId, stepText, loading, isDark, onComplete, r
           const ease = 1 - Math.pow(1 - k, 3);
           ctx.save();
           ctx.translate(cx, cy);
-          ctx.strokeStyle = `rgba(${GATHER_MINT[0]},${GATHER_MINT[1]},${GATHER_MINT[2]},0.95)`;
+          ctx.strokeStyle = `rgba(${th.mint[0]},${th.mint[1]},${th.mint[2]},${a.check})`;
           ctx.lineWidth = 5.5;
           ctx.lineCap = "round";
           ctx.lineJoin = "round";
@@ -1463,7 +1548,7 @@ function GatherBloomCircle({ sessionId, stepText, loading, isDark, onComplete, r
         position: "relative",
         width: "100%",
         maxWidth: GATHER_CANVAS_W,
-        height: GATHER_CANVAS_H,
+        aspectRatio: `${GATHER_CANVAS_W} / ${GATHER_CANVAS_H}`,
         touchAction: "none",
         cursor: phase === "focus" && !loading ? "pointer" : "default",
         WebkitUserSelect: "none",
@@ -1483,6 +1568,7 @@ function GatherBloomCircle({ sessionId, stepText, loading, isDark, onComplete, r
         style={{
           display: "block",
           width: "100%",
+          height: "100%",
           background: "transparent",
         }}
       />
@@ -1492,7 +1578,7 @@ function GatherBloomCircle({ sessionId, stepText, loading, isDark, onComplete, r
         transform: showFocusText ? "scale(1)" : "scale(0.97)",
         transition: showFocusText ? "opacity 600ms ease 300ms, transform 600ms ease 300ms" : "opacity 600ms ease, transform 600ms ease",
       }}>
-        <p style={gatherTaskTextStyle(displayText, isDark)}>{displayText}</p>
+        <p style={gatherTaskTextStyle(displayText, theme)}>{displayText}</p>
         {resourceLink ? (
           <a
             href={resourceLink}
@@ -1501,7 +1587,7 @@ function GatherBloomCircle({ sessionId, stepText, loading, isDark, onComplete, r
             style={{
               position: "absolute",
               left: "50%",
-              top: GATHER_CIRCLE_CY + 72,
+              top: `${((GATHER_CIRCLE_CY + 72) / GATHER_CANVAS_H) * 100}%`,
               transform: "translateX(-50%)",
               color: C.accent500,
               fontSize: 13,
@@ -1527,7 +1613,7 @@ function GatherBloomCircle({ sessionId, stepText, loading, isDark, onComplete, r
           fontWeight: 600,
           letterSpacing: "0.12em",
           textTransform: "uppercase",
-          color: isDark ? C.accent300 : "#9D93D8",
+          color: theme.loadingHint,
         }}>gathering your step</p>
       </div>
     </div>
@@ -1562,7 +1648,6 @@ function InProgressScreen({ onDone, onPause, onTooMuch, onDefer, step, resourceL
           sessionId={gatherSessionId}
           stepText={step?.text}
           loading={stepsLoading}
-          isDark={isDark}
           onComplete={onDone}
           resourceLink={resourceLink}
         />
