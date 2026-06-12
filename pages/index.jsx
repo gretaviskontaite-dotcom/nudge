@@ -1096,8 +1096,8 @@ const GATHER_THEME = {
       tideCrest: 0.72,
       tideRingBase: 0.55,
       tideRingHold: 0.30,
-      completeGlowInner: 0.12,
-      completeGlowMid: 0.04,
+      completeGlowInner: 0.11,
+      completeGlowMid: 0.035,
       completeTide0: 0.15,
       completeTide1: 0.08,
       completeRing: 0.88,
@@ -1138,17 +1138,17 @@ function gatherTaskTextStyle(text, theme) {
   };
 }
 
-function GatherBloomCircle({ sessionId, stepText, loading, onComplete, resourceLink }) {
+function GatherBloomCircle({ sessionId, stepText, loading, phase, onPhaseChange, onComplete, resourceLink }) {
   const isDark = useContext(IsDarkContext);
   const theme = getGatherTheme(isDark);
   const themeRef = useRef(theme);
   themeRef.current = theme;
   const displayText = stepText || "Your step is loading…";
-  const [phase, setPhase] = useState("loading");
   const [runId, setRunId] = useState(0);
   const canvasRef = useRef(null);
-  const phaseRef = useRef("loading");
+  const phaseRef = useRef(phase);
   const phaseStart = useRef(performance.now());
+  const onPhaseChangeRef = useRef(onPhaseChange);
   const hold = useRef({ active: false, value: 0 });
   const gatherers = useRef([]);
   const bloomers = useRef([]);
@@ -1162,9 +1162,11 @@ function GatherBloomCircle({ sessionId, stepText, loading, onComplete, resourceL
   const completeFiredSession = useRef(null);
   const onCompleteRef = useRef(onComplete);
 
+  phaseRef.current = phase;
   loadingRef.current = loading;
   stepTextRef.current = stepText;
   onCompleteRef.current = onComplete;
+  onPhaseChangeRef.current = onPhaseChange;
 
   useEffect(() => {
     if (window.matchMedia) {
@@ -1173,7 +1175,7 @@ function GatherBloomCircle({ sessionId, stepText, loading, onComplete, resourceL
   }, []);
 
   const resetGatherAnimation = useCallback(() => {
-    setPhase("loading");
+    onPhaseChangeRef.current("loading");
     phaseRef.current = "loading";
     phaseStart.current = performance.now();
     focusTriggered.current = false;
@@ -1290,7 +1292,12 @@ function GatherBloomCircle({ sessionId, stepText, loading, onComplete, resourceL
           hold.current.value = Math.min(1, hold.current.value + dt / GATHER_HOLD_MS);
           if (hold.current.value >= 1) {
             hold.current = { active: false, value: 0 };
-            setPhase("complete");
+            if (phaseRef.current !== "complete") {
+              phaseRef.current = "complete";
+              phaseStart.current = performance.now();
+              spawnBloom();
+              onPhaseChangeRef.current("complete");
+            }
           }
         } else {
           hold.current.value = Math.max(0, hold.current.value - dt / (GATHER_HOLD_MS * 0.55));
@@ -1323,15 +1330,18 @@ function GatherBloomCircle({ sessionId, stepText, loading, onComplete, resourceL
       }
 
       const haloGate = ph === "loading" ? circleAlpha.current : 1;
-      const haloR = R + 52;
-      const halo = ctx.createRadialGradient(cx, cy, R * 0.55, cx, cy, haloR);
-      halo.addColorStop(0, `rgba(${cr},${cg},${cb},${(a.haloBase + breathe * a.haloBreathe + hv * a.haloHold) * haloGate})`);
-      halo.addColorStop(0.55, `rgba(${cr},${cg},${cb},${a.haloMid * haloGate})`);
-      halo.addColorStop(1, "rgba(0,0,0,0)");
-      ctx.beginPath();
-      ctx.arc(cx, cy, haloR, 0, Math.PI * 2);
-      ctx.fillStyle = halo;
-      ctx.fill();
+      const skipOuterHalo = ph === "complete" && th.interior;
+      if (!skipOuterHalo) {
+        const haloR = R + 52;
+        const halo = ctx.createRadialGradient(cx, cy, R * 0.55, cx, cy, haloR);
+        halo.addColorStop(0, `rgba(${cr},${cg},${cb},${(a.haloBase + breathe * a.haloBreathe + hv * a.haloHold) * haloGate})`);
+        halo.addColorStop(0.55, `rgba(${cr},${cg},${cb},${a.haloMid * haloGate})`);
+        halo.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.beginPath();
+        ctx.arc(cx, cy, haloR, 0, Math.PI * 2);
+        ctx.fillStyle = halo;
+        ctx.fill();
+      }
 
       if (ph === "loading" && gatherers.current.length) {
         let arrivedCount = 0;
@@ -1377,7 +1387,9 @@ function GatherBloomCircle({ sessionId, stepText, loading, onComplete, resourceL
           (circleAlpha.current > 0.88 || target >= 0.95 || reduceMotion.current)
         ) {
           focusTriggered.current = true;
-          setPhase("focus");
+          onPhaseChangeRef.current("focus");
+          phaseRef.current = "focus";
+          phaseStart.current = performance.now();
         }
       } else if (ph !== "loading") {
         circleAlpha.current = lerp(circleAlpha.current, 1, 0.08);
@@ -1388,15 +1400,18 @@ function GatherBloomCircle({ sessionId, stepText, loading, onComplete, resourceL
         if (ph === "complete" && th.interior) {
           const [ir, ig, ib] = th.interior;
           const [mr, mg, mb] = th.mint;
-          const fg = ctx.createRadialGradient(cx, cy, 0, cx, cy, R);
-          fg.addColorStop(0, `rgba(${mr},${mg},${mb},${a.completeGlowInner * ca})`);
-          fg.addColorStop(0.38, `rgba(${mr},${mg},${mb},${a.completeGlowMid * ca})`);
-          fg.addColorStop(0.62, `rgba(${ir},${ig},${ib},${0.55 * ca})`);
-          fg.addColorStop(0.88, `rgba(${ir},${ig},${ib},${0.92 * ca})`);
-          fg.addColorStop(1, `rgba(${ir},${ig},${ib},${0.96 * ca})`);
           ctx.beginPath();
           ctx.arc(cx, cy, R, 0, Math.PI * 2);
-          ctx.fillStyle = fg;
+          ctx.fillStyle = `rgba(${ir},${ig},${ib},${0.94 * ca})`;
+          ctx.fill();
+          const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, R);
+          glow.addColorStop(0, `rgba(${mr},${mg},${mb},${a.completeGlowInner * ca})`);
+          glow.addColorStop(0.42, `rgba(${mr},${mg},${mb},${a.completeGlowMid * ca})`);
+          glow.addColorStop(0.72, `rgba(${mr},${mg},${mb},${0.012 * ca})`);
+          glow.addColorStop(1, `rgba(${mr},${mg},${mb},0)`);
+          ctx.beginPath();
+          ctx.arc(cx, cy, R, 0, Math.PI * 2);
+          ctx.fillStyle = glow;
           ctx.fill();
           ctx.strokeStyle = `rgba(${mr},${mg},${mb},${a.completeRing * ca})`;
           ctx.lineWidth = 2.5;
@@ -1664,21 +1679,24 @@ function inProgressShellBackground(isDark) {
     : "radial-gradient(ellipse at 50% 30%, #EEE9FF 0%, #F0EEF5 60%)";
 }
 
-function InProgressScreen({ onDone, onPause, onTooMuch, onDefer, step, resourceLink, stepsLoading }) {
+function InProgressScreen({ gatherPhase, onGatherPhaseChange, onDone, onPause, onTooMuch, onDefer, step, resourceLink, stepsLoading }) {
   const isDark = useContext(IsDarkContext);
   const [showDeferInput, setShowDeferInput] = useState(false);
   const [deferDraft, setDeferDraft] = useState("");
   const [gatherSessionId] = useState(() => Math.random());
+  const isComplete = gatherPhase === "complete";
 
   return (
     <>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <Label style={{ margin: 0 }}>In Progress</Label>
+        <Label style={{ margin: 0 }}>{isComplete ? "Step complete" : "In Progress"}</Label>
+        {!isComplete && (
         <button onClick={onPause} style={{
           background: "none", border: "none", color: C.neutral500,
           ...T.small, fontWeight: 600, cursor: "pointer", fontFamily: "Inter",
           display: "flex", alignItems: "center", gap: 6,
         }}>‖ Pause</button>
+        )}
       </div>
 
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, width: "100%" }}>
@@ -1686,6 +1704,8 @@ function InProgressScreen({ onDone, onPause, onTooMuch, onDefer, step, resourceL
         <div style={{ width: "100%", flexShrink: 0, display: "flex", justifyContent: "center" }}>
           <GatherBloomCircle
             sessionId={gatherSessionId}
+            phase={gatherPhase}
+            onPhaseChange={onGatherPhaseChange}
             stepText={step?.text}
             loading={stepsLoading}
             onComplete={onDone}
@@ -1701,16 +1721,30 @@ function InProgressScreen({ onDone, onPause, onTooMuch, onDefer, step, resourceL
           width: "100%",
         }}>
           <div style={{ textAlign: "center" }}>
-            <div style={{
-              ...T.small, color: C.accent500, fontWeight: 600, marginBottom: 6,
-            }}>
-              Take your time. No rush.
-            </div>
-            <div style={{ ...T.hint }}>Focus on just this one thing.</div>
+            {isComplete ? (
+              <>
+                <div style={{
+                  ...T.small, color: C.success500, fontWeight: 600, marginBottom: 6,
+                }}>
+                  Small step taken.
+                </div>
+                <div style={{ ...T.hint }}>That's real progress.</div>
+              </>
+            ) : (
+              <>
+                <div style={{
+                  ...T.small, color: C.accent500, fontWeight: 600, marginBottom: 6,
+                }}>
+                  Take your time. No rush.
+                </div>
+                <div style={{ ...T.hint }}>Focus on just this one thing.</div>
+              </>
+            )}
           </div>
         </div>
       </div>
 
+      {!isComplete && (
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <BtnSecondary key="too-much" onClick={onTooMuch}>Too much?</BtnSecondary>
         {showDeferInput ? (
@@ -1735,6 +1769,7 @@ function InProgressScreen({ onDone, onPause, onTooMuch, onDefer, step, resourceL
           <BtnSecondary key="not-ready" onClick={() => setShowDeferInput(true)}>Not ready yet</BtnSecondary>
         )}
       </div>
+      )}
     </>
   );
 }
@@ -1873,7 +1908,8 @@ function HistoryScreen({ history, onBack }) {
   );
 }
 
-function HomeScreen({ onResume, tasks, setTasks, onHistory, reason }) {
+function HomeScreen({ onResume, onContinueSession, inProgressSession, tasks, setTasks, onHistory, reason }) {
+  const isDark = useContext(IsDarkContext);
   const [input, setInput] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const isExit = reason === "exit";
@@ -1911,6 +1947,21 @@ function HomeScreen({ onResume, tasks, setTasks, onHistory, reason }) {
           <div style={{ ...T.hint, marginTop: 8 }}>Tap a task to select it</div>
         )}
       </div>
+
+      {inProgressSession ? (
+        <Card style={{ background: isDark ? "#2A2445" : C.accent100, marginBottom: 16, borderRadius: 20 }}>
+          <div style={{ ...T.label, color: C.accent500, marginBottom: 6 }}>You were here</div>
+          <div style={{ ...T.small, color: isDark ? "var(--n9)" : C.accent700, marginBottom: 4 }}>
+            {inProgressSession.taskId}
+          </div>
+          <div style={{
+            ...T.subtitle, color: "var(--n9)", marginBottom: 16, fontWeight: 700, lineHeight: 1.4,
+          }}>
+            {inProgressSession.step?.text || "Your step is loading…"}
+          </div>
+          <BtnPrimary onClick={onContinueSession}>Continue where you left off</BtnPrimary>
+        </Card>
+      ) : null}
 
       {/* Editable task list */}
       <Card style={{ marginBottom: 12, gap: 0, padding: 0, overflow: "hidden" }}>
@@ -2646,11 +2697,51 @@ function MomentumScreen({ next, onExit, completedSteps, onMarkDone, task }) {
 // APP
 // ═══════════════════════════════════════════════════════════════════════
 
-function resolveInitialScreen(tasks, savedScreen) {
+const NUDGE_IN_PROGRESS_SESSION_KEY = "nudge_in_progress_session";
+
+function loadInProgressSessionFromStorage() {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(NUDGE_IN_PROGRESS_SESSION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.taskId) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function saveInProgressSessionToStorage(session) {
+  if (typeof window === "undefined") return;
+  if (!session?.taskId) return;
+  localStorage.setItem(NUDGE_IN_PROGRESS_SESSION_KEY, JSON.stringify(session));
+}
+
+function clearInProgressSessionStorage() {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem(NUDGE_IN_PROGRESS_SESSION_KEY);
+}
+
+function resolveInitialScreen(tasks) {
   const hasTasks = Array.isArray(tasks) && tasks.length > 0;
   if (!hasTasks) return "onboarding";
-  if (!savedScreen || savedScreen === "splash" || savedScreen === "onboarding") return "suggestion";
-  return savedScreen;
+  return "home";
+}
+
+function migrateInProgressSession(tasks, stepIndex, savedScreen) {
+  const existing = loadInProgressSessionFromStorage();
+  if (existing) return existing;
+  if (!tasks.length) return null;
+  if (savedScreen !== "inprogress" && savedScreen !== "suggestion") return null;
+  const session = {
+    taskId: tasks[0],
+    stepIndex: Number.isInteger(stepIndex) ? stepIndex : 0,
+    step: null,
+    savedAt: new Date().toISOString(),
+  };
+  saveInProgressSessionToStorage(session);
+  return session;
 }
 
 function loadPersistedAppState() {
@@ -2664,13 +2755,15 @@ function loadPersistedAppState() {
     const taskName = localStorage.getItem("nudge_paused_task");
     const note = localStorage.getItem("nudge_paused_note");
     const progress = localStorage.getItem("nudge_paused_progress");
+    const stepIndex = Number.isInteger(stepIndexRaw) ? stepIndexRaw : 0;
+    const inProgressSession = migrateInProgressSession(tasks, stepIndex, savedScreen);
 
     return {
       tasks: Array.isArray(tasks) ? tasks : [],
-      screen: resolveInitialScreen(tasks, savedScreen),
+      screen: resolveInitialScreen(tasks),
       defaultEnergy: localStorage.getItem("nudge_energy") || "low",
       defaultTime: localStorage.getItem("nudge_time") || "10 min",
-      stepIndex: Number.isInteger(stepIndexRaw) ? stepIndexRaw : 0,
+      stepIndex,
       sessionCount: Number.isInteger(sessionCountRaw) ? sessionCountRaw : 0,
       completedSteps: JSON.parse(localStorage.getItem("nudge_completed_steps")) || [],
       granularity: localStorage.getItem("nudge_granularity") || "balanced",
@@ -2679,6 +2772,7 @@ function loadPersistedAppState() {
       pausedTaskName: taskName ? JSON.parse(taskName) : "",
       pausedNote: note ? JSON.parse(note) : "",
       pausedProgress: progress ? JSON.parse(progress) : "",
+      inProgressSession,
     };
   } catch {
     return {
@@ -2695,6 +2789,7 @@ function loadPersistedAppState() {
       pausedTaskName: "",
       pausedNote: "",
       pausedProgress: "",
+      inProgressSession: null,
     };
   }
 }
@@ -2717,6 +2812,7 @@ export default function NudgeApp() {
   const [stepLinks, setStepLinks] = useState({});
   const [deferredNote, setDeferredNote] = useState("");
   const [completedHistory, setCompletedHistory] = useState([]);
+  const [inProgressSession, setInProgressSession] = useState(null);
 
   useEffect(() => {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
@@ -2741,7 +2837,25 @@ export default function NudgeApp() {
     setPausedTaskName(saved.pausedTaskName);
     setPausedNote(saved.pausedNote);
     setPausedProgress(saved.pausedProgress);
+    setInProgressSession(saved.inProgressSession);
     setHydrated(true);
+  }, []);
+
+  const clearInProgressSession = useCallback(() => {
+    clearInProgressSessionStorage();
+    setInProgressSession(null);
+  }, []);
+
+  const persistInProgressSession = useCallback((taskId, idx, step) => {
+    if (!taskId) return;
+    const session = {
+      taskId,
+      stepIndex: idx,
+      step: step?.text ? step : null,
+      savedAt: new Date().toISOString(),
+    };
+    saveInProgressSessionToStorage(session);
+    setInProgressSession(session);
   }, []);
 
   useEffect(() => {
@@ -2809,6 +2923,30 @@ export default function NudgeApp() {
     lastScreen.current = screen;
   }, [screen, tasks]);
 
+  useEffect(() => {
+    if (!hydrated || screen !== "inprogress") return;
+    const taskId = activeCompletionTask.current || tasks[0];
+    if (!taskId) return;
+    persistInProgressSession(taskId, stepIndex, currentStep);
+  }, [hydrated, screen, stepIndex, currentStep, tasks, persistInProgressSession]);
+
+  const continueInProgressSession = () => {
+    if (!inProgressSession) return;
+    const { taskId, stepIndex: idx } = inProgressSession;
+    setTasks([taskId, ...tasks.filter(t => t !== taskId)]);
+    setStepIndex(idx);
+    activeCompletionTask.current = taskId;
+    handleDoneGuard.current = "";
+    go("inprogress");
+  };
+
+  const startFreshTask = (picked) => {
+    clearInProgressSession();
+    setTasks([picked, ...tasks.filter(x => x !== picked)]);
+    setStepIndex(0);
+    go("suggestion");
+  };
+
   const savePauseState = ({ note, progress }) => {
     const pauseTask = activeCompletionTask.current || task;
     setPausedStep(currentStep);
@@ -2825,7 +2963,12 @@ export default function NudgeApp() {
   };
 
   const [isLastStep, setIsLastStep] = useState(false);
+  const [gatherPhase, setGatherPhase] = useState("loading");
   const resourceLink = stepLinks[stepIndex] || currentStep?.link || "";
+
+  useEffect(() => {
+    if (screen !== "inprogress") setGatherPhase("loading");
+  }, [screen]);
 
   const handleDone = () => {
     if (!currentStep?.text) return;
@@ -2833,6 +2976,7 @@ export default function NudgeApp() {
     const guardKey = `${taskId}::${stepIndex}::${currentStep.text}`;
     if (handleDoneGuard.current === guardKey) return;
     handleDoneGuard.current = guardKey;
+    clearInProgressSession();
 
     setCompletedSteps(p => (p.includes(currentStep.text) ? p : [...p, currentStep.text]));
     setCompletedHistory(h => {
@@ -2867,7 +3011,7 @@ export default function NudgeApp() {
     ready: <ReadyScreen next={() => go("suggestion")} back={() => go("setup")} setGranularity={setGranularity} />,
     suggestion: <SuggestionScreen next={() => { if (currentStep) go("inprogress"); }} onTooHard={() => { if (currentStep) go("simplify"); }} onAnother={() => go("allsteps")} onSkip={() => setStepIndex(i => (steps.length ? (i + 1) % steps.length : 0))} onExit={() => goHome("exit")} task={task} stepIndex={stepIndex} steps={steps} energy={defaultEnergy} loading={stepsLoading} deferredNote={deferredNote} onDismissDeferNote={() => setDeferredNote("")} />,
     allsteps: <AllStepsScreen back={() => go("suggestion")} steps={steps} task={task} stepIndex={stepIndex} onPick={i => { setStepIndex(i); go("suggestion"); }} loading={stepsLoading} stepLinks={stepLinks} onSetStepLink={(i, url) => setStepLinks(p => ({ ...p, [i]: url }))} />,
-    inprogress: <InProgressScreen step={currentStep} resourceLink={resourceLink} stepsLoading={stepsLoading} onDone={handleDone} onPause={() => { setPausedStep(currentStep); go("pause"); }} onTooMuch={() => go("simplify")} onDefer={(note) => { setDeferredNote(note); go("suggestion"); }} />,
+    inprogress: <InProgressScreen gatherPhase={gatherPhase} onGatherPhaseChange={setGatherPhase} step={currentStep} resourceLink={resourceLink} stepsLoading={stepsLoading} onDone={handleDone} onPause={() => { setPausedStep(currentStep); go("pause"); }} onTooMuch={() => go("simplify")} onDefer={(note) => { setDeferredNote(note); go("suggestion"); }} />,
     simplify: <SimplifyScreen next={() => go("inprogress")} onStillTooMuch={() => go("suggestion")} step={currentStep} />,
     pause: <PauseScreen
       onSaveAndPause={(data) => { savePauseState(data); go("return_paused"); }}
@@ -2876,7 +3020,9 @@ export default function NudgeApp() {
     />,
     home: <HomeScreen
       reason={homeReason}
-      onResume={(picked) => { setTasks([picked, ...tasks.filter(x => x !== picked)]); setStepIndex(0); go("suggestion"); }}
+      inProgressSession={inProgressSession}
+      onContinueSession={continueInProgressSession}
+      onResume={startFreshTask}
       tasks={tasks}
       setTasks={setTasks}
       onHistory={() => go("history")}
@@ -2886,15 +3032,15 @@ export default function NudgeApp() {
     done: <DoneScreen next={() => goHome("done")} onMore={() => go("suggestion")} isLast={isLastStep} />,
     return_paused: <ReturnPausedScreen
       next={() => go("inprogress")}
-      onFresh={() => go("switch_task")}
-      onPickTask={(t) => { setTasks([t, ...tasks.filter(x => x !== t)]); setStepIndex(0); go("suggestion"); }}
+      onFresh={() => { clearInProgressSession(); go("switch_task"); }}
+      onPickTask={(t) => { clearInProgressSession(); setTasks([t, ...tasks.filter(x => x !== t)]); setStepIndex(0); go("suggestion"); }}
       tasks={tasks}
       step={pausedStep || currentStep}
       task={pausedTaskName || task}
       note={pausedNote}
       pauseProgress={pausedProgress}
     />,
-    switch_task: <SwitchTaskScreen tasks={tasks.length ? tasks : ["Work on portfolio", "Clean kitchen", "Baby sleep schedule"]} onPick={t => { setTasks([t, ...tasks.filter(x => x !== t)]); setStepIndex(0); go("suggestion"); }} onAdd={t => { setTasks(p => [t, ...p]); setStepIndex(0); go("suggestion"); }} onBack={() => { const dest = prevScreen.current || "home"; if (dest === "home") setHomeReason("list"); go(dest); }} />,
+    switch_task: <SwitchTaskScreen tasks={tasks.length ? tasks : ["Work on portfolio", "Clean kitchen", "Baby sleep schedule"]} onPick={t => { clearInProgressSession(); setTasks([t, ...tasks.filter(x => x !== t)]); setStepIndex(0); go("suggestion"); }} onAdd={t => { clearInProgressSession(); setTasks(p => [t, ...p]); setStepIndex(0); go("suggestion"); }} onBack={() => { const dest = prevScreen.current || "home"; if (dest === "home") setHomeReason("list"); go(dest); }} />,
     return_short: <ReturnShortScreen next={() => go("suggestion")} onExit={() => goHome("list")} />,
     return_long: <ReturnLongScreen next={() => go("switch_task")} />,
     pattern: <PatternScreen next={() => go("suggestion")} onExit={() => goHome("done")} completedCount={sessionCount} topEnergy={defaultEnergy} insights={getInsights()} />,
@@ -2903,12 +3049,12 @@ export default function NudgeApp() {
       onExit={() => goHome("done")}
       completedSteps={completedSteps}
       task={task}
-      onMarkDone={() => { setTasks(t => t.slice(1)); goHome("done"); }}
+      onMarkDone={() => { clearInProgressSession(); setTasks(t => t.slice(1)); goHome("done"); }}
     />,
   };
 
   const shellBackground = screen === "inprogress"
-    ? inProgressShellBackground(isDark)
+    ? (gatherPhase === "complete" ? doneShellBackground(isDark) : inProgressShellBackground(isDark))
     : screen === "done"
       ? doneShellBackground(isDark)
       : (isDark ? "#1A1828" : C.neutral100);
