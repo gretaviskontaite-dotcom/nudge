@@ -204,16 +204,20 @@ function useTaskBreakdown(task, energy, timeAvailable, granularity) {
   const [steps, setSteps] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [stepsTask, setStepsTask] = useState(null);
   const cache = useRef({});
 
   useEffect(() => {
     if (!task) {
       setLoading(false);
+      setSteps([]);
+      setStepsTask(null);
       return;
     }
     const key = `${task}__${energy}__${timeAvailable}__${granularity}`;
     if (cache.current[key]) {
       setSteps(cache.current[key]);
+      setStepsTask(task);
       setLoading(false);
       return;
     }
@@ -221,22 +225,25 @@ function useTaskBreakdown(task, energy, timeAvailable, granularity) {
     setLoading(true);
     setError(null);
     setSteps([]);
+    setStepsTask(null);
 
     fetchTaskSteps(task, energy, timeAvailable, granularity)
       .then(result => {
         cache.current[key] = result;
         setSteps(result);
+        setStepsTask(task);
         setLoading(false);
       })
       .catch(err => {
         console.error("AI step generation failed:", err);
         setError(err.message);
         setSteps(FALLBACK_STEPS);
+        setStepsTask(task);
         setLoading(false);
       });
   }, [task, energy, timeAvailable, granularity]);
 
-  return { steps, loading, error };
+  return { steps, loading, error, stepsTask };
 }
 
 const NUDGE_SESSION_HISTORY_KEY = "nudge_session_history";
@@ -2307,7 +2314,7 @@ function HomeScreen({ onResume, onContinueSession, inProgressSession, tasks, set
         <Card style={{ background: isDark ? "#2A2445" : C.accent100, marginBottom: 16, borderRadius: 20 }}>
           <div style={{ ...T.label, color: C.accent500, marginBottom: 6 }}>You were here</div>
           <div style={{ ...T.small, color: isDark ? "var(--n9)" : C.accent700, marginBottom: 4 }}>
-            {inProgressSession.taskId}
+            {inProgressSession.taskName}
           </div>
           <div style={{
             ...T.subtitle, color: "var(--n9)", marginBottom: 16, fontWeight: 700, lineHeight: 1.4,
@@ -3061,7 +3068,10 @@ function loadInProgressSessionFromStorage() {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed?.taskId) return null;
-    return parsed;
+    return {
+      ...parsed,
+      taskName: parsed.taskName || parsed.taskId,
+    };
   } catch {
     return null;
   }
@@ -3069,7 +3079,7 @@ function loadInProgressSessionFromStorage() {
 
 function saveInProgressSessionToStorage(session) {
   if (typeof window === "undefined") return;
-  if (!session?.taskId) return;
+  if (!session?.taskId || !session?.taskName) return;
   localStorage.setItem(NUDGE_IN_PROGRESS_SESSION_KEY, JSON.stringify(session));
 }
 
@@ -3091,6 +3101,7 @@ function migrateInProgressSession(tasks, stepIndex, savedScreen) {
   if (savedScreen !== "inprogress" && savedScreen !== "suggestion") return null;
   const session = {
     taskId: tasks[0],
+    taskName: tasks[0],
     stepIndex: Number.isInteger(stepIndex) ? stepIndex : 0,
     step: null,
     savedAt: new Date().toISOString(),
@@ -3201,16 +3212,17 @@ export default function NudgeApp() {
     setInProgressSession(null);
   }, []);
 
-  const persistInProgressSession = useCallback((taskId, idx, step) => {
-    if (!taskId) return;
-    const session = {
-      taskId,
-      stepIndex: idx,
-      step: step?.text ? step : null,
+  const persistInProgressSession = useCallback((session) => {
+    if (!session?.taskId || !session?.taskName) return;
+    const payload = {
+      taskId: session.taskId,
+      taskName: session.taskName,
+      stepIndex: session.stepIndex,
+      step: session.step?.text ? session.step : null,
       savedAt: new Date().toISOString(),
     };
-    saveInProgressSessionToStorage(session);
-    setInProgressSession(session);
+    saveInProgressSessionToStorage(payload);
+    setInProgressSession(payload);
   }, []);
 
   useEffect(() => {
@@ -3266,7 +3278,7 @@ export default function NudgeApp() {
   const go = s => { prevScreen.current = screen; setScreen(s); };
   const goHome = (reason = "list") => { setHomeReason(reason); go("home"); };
   const task = tasks[0] || "Work on portfolio";
-  const { steps, loading: stepsLoading } = useTaskBreakdown(task, defaultEnergy, defaultTime, granularity);
+  const { steps, loading: stepsLoading, stepsTask } = useTaskBreakdown(task, defaultEnergy, defaultTime, granularity);
   const { recordSession, getInsights } = usePatternLearning();
   const currentStep = steps[stepIndex] || steps[0];
 
@@ -3280,23 +3292,31 @@ export default function NudgeApp() {
 
   useEffect(() => {
     if (!hydrated || screen !== "inprogress") return;
-    const taskId = activeCompletionTask.current || tasks[0];
-    if (!taskId) return;
-    persistInProgressSession(taskId, stepIndex, currentStep);
-  }, [hydrated, screen, stepIndex, currentStep, tasks, persistInProgressSession]);
+    const workTask = activeCompletionTask.current;
+    if (!workTask || workTask !== task || stepsTask !== workTask) return;
+    if (stepsLoading || !currentStep?.text) return;
+    persistInProgressSession({
+      taskId: workTask,
+      taskName: workTask,
+      stepIndex,
+      step: currentStep,
+    });
+  }, [hydrated, screen, stepIndex, currentStep, task, stepsTask, stepsLoading, persistInProgressSession]);
 
   const continueInProgressSession = () => {
     if (!inProgressSession) return;
-    const { taskId, stepIndex: idx } = inProgressSession;
-    setTasks([taskId, ...tasks.filter(t => t !== taskId)]);
+    const name = inProgressSession.taskName || inProgressSession.taskId;
+    const idx = inProgressSession.stepIndex;
+    setTasks([name, ...tasks.filter(t => t !== name)]);
     setStepIndex(idx);
-    activeCompletionTask.current = taskId;
+    activeCompletionTask.current = name;
     handleDoneGuard.current = "";
     go("inprogress");
   };
 
   const startFreshTask = (picked) => {
     clearInProgressSession();
+    activeCompletionTask.current = picked;
     setTasks([picked, ...tasks.filter(x => x !== picked)]);
     setStepIndex(0);
     go("suggestion");
@@ -3384,7 +3404,7 @@ export default function NudgeApp() {
     />,
     history: <HistoryScreen history={completedHistory} onBack={() => goHome("list")} />,
     paused_confirm: <PausedConfirmScreen next={() => goHome("done")} />,
-    done: <DoneScreen next={() => goHome("done")} onMore={() => go("suggestion")} isLast={isLastStep} />,
+    done: <DoneScreen next={() => { clearInProgressSession(); goHome("done"); }} onMore={() => go("suggestion")} isLast={isLastStep} />,
     return_paused: <ReturnPausedScreen
       next={() => go("inprogress")}
       onFresh={() => { clearInProgressSession(); go("switch_task"); }}
@@ -3398,10 +3418,10 @@ export default function NudgeApp() {
     switch_task: <SwitchTaskScreen tasks={tasks.length ? tasks : ["Work on portfolio", "Clean kitchen", "Baby sleep schedule"]} onPick={t => { clearInProgressSession(); setTasks([t, ...tasks.filter(x => x !== t)]); setStepIndex(0); go("suggestion"); }} onAdd={t => { clearInProgressSession(); setTasks(p => [t, ...p]); setStepIndex(0); go("suggestion"); }} onBack={() => { const dest = prevScreen.current || "home"; if (dest === "home") setHomeReason("list"); go(dest); }} />,
     return_short: <ReturnShortScreen next={() => go("suggestion")} onExit={() => goHome("list")} />,
     return_long: <ReturnLongScreen next={() => go("switch_task")} />,
-    pattern: <PatternScreen next={() => go("suggestion")} onExit={() => goHome("done")} completedCount={sessionCount} topEnergy={defaultEnergy} insights={getInsights()} />,
+    pattern: <PatternScreen next={() => go("suggestion")} onExit={() => { clearInProgressSession(); goHome("done"); }} completedCount={sessionCount} topEnergy={defaultEnergy} insights={getInsights()} />,
     momentum: <MomentumScreen
       next={() => go("suggestion")}
-      onExit={() => goHome("done")}
+      onExit={() => { clearInProgressSession(); goHome("done"); }}
       completedSteps={completedSteps}
       task={task}
       onMarkDone={() => { clearInProgressSession(); setTasks(t => t.slice(1)); goHome("done"); }}
