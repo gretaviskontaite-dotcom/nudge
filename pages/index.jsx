@@ -1058,6 +1058,7 @@ const GATHER_THEME = {
       completeRing: 0.7,
       bloom: 0.6,
       check: 0.95,
+      checkWidth: 5.5,
       droplet: 0.35,
     },
   },
@@ -1091,13 +1092,14 @@ const GATHER_THEME = {
       tideCrest: 0.72,
       tideRingBase: 0.55,
       tideRingHold: 0.30,
-      completeGlowInner: 0.10,
-      completeGlowMid: 0.05,
+      completeGlowInner: 0.12,
+      completeGlowMid: 0.04,
       completeTide0: 0.15,
       completeTide1: 0.08,
       completeRing: 0.88,
       bloom: 0.75,
       check: 0.95,
+      checkWidth: 6.5,
       droplet: 0.35,
     },
   },
@@ -1153,6 +1155,7 @@ function GatherBloomCircle({ sessionId, stepText, loading, onComplete, resourceL
   const stepTextRef = useRef(stepText);
   const focusTriggered = useRef(false);
   const completeFired = useRef(false);
+  const completeFiredSession = useRef(null);
   const onCompleteRef = useRef(onComplete);
 
   loadingRef.current = loading;
@@ -1171,6 +1174,7 @@ function GatherBloomCircle({ sessionId, stepText, loading, onComplete, resourceL
     phaseStart.current = performance.now();
     focusTriggered.current = false;
     completeFired.current = false;
+    completeFiredSession.current = null;
     hold.current = { active: false, value: 0 };
     bloomers.current = [];
     colorMix.current = 0;
@@ -1188,20 +1192,20 @@ function GatherBloomCircle({ sessionId, stepText, loading, onComplete, resourceL
     phaseStart.current = performance.now();
     if (phase === "complete") {
       spawnBloom();
-      completeFired.current = false;
     }
   }, [phase, runId]);
 
   useEffect(() => {
     if (phase !== "complete") return;
+    const firedFor = sessionId;
     const t = setTimeout(() => {
-      if (!completeFired.current) {
-        completeFired.current = true;
-        onCompleteRef.current();
-      }
+      if (completeFiredSession.current === firedFor) return;
+      completeFiredSession.current = firedFor;
+      completeFired.current = true;
+      onCompleteRef.current();
     }, 2200);
     return () => clearTimeout(t);
-  }, [phase]);
+  }, [phase, sessionId]);
 
   const spawnGather = () => {
     if (reduceMotion.current) { gatherers.current = []; return; }
@@ -1380,11 +1384,12 @@ function GatherBloomCircle({ sessionId, stepText, loading, onComplete, resourceL
         if (ph === "complete" && th.interior) {
           const [ir, ig, ib] = th.interior;
           const [mr, mg, mb] = th.mint;
-          const fg = ctx.createRadialGradient(cx - R * 0.2, cy - R * 0.25, R * 0.05, cx, cy, R * 1.05);
+          const fg = ctx.createRadialGradient(cx, cy, 0, cx, cy, R);
           fg.addColorStop(0, `rgba(${mr},${mg},${mb},${a.completeGlowInner * ca})`);
-          fg.addColorStop(0.5, `rgba(${mr},${mg},${mb},${a.completeGlowMid * ca})`);
-          fg.addColorStop(0.82, `rgba(${ir},${ig},${ib},${0.92 * ca})`);
-          fg.addColorStop(1, `rgba(${ir},${ig},${ib},0)`);
+          fg.addColorStop(0.38, `rgba(${mr},${mg},${mb},${a.completeGlowMid * ca})`);
+          fg.addColorStop(0.62, `rgba(${ir},${ig},${ib},${0.55 * ca})`);
+          fg.addColorStop(0.88, `rgba(${ir},${ig},${ib},${0.92 * ca})`);
+          fg.addColorStop(1, `rgba(${ir},${ig},${ib},${0.96 * ca})`);
           ctx.beginPath();
           ctx.arc(cx, cy, R, 0, Math.PI * 2);
           ctx.fillStyle = fg;
@@ -1529,10 +1534,10 @@ function GatherBloomCircle({ sessionId, stepText, loading, onComplete, resourceL
           ctx.translate(cx, cy);
           const [ckr, ckg, ckb] = th.checkStroke ?? th.mint;
           ctx.strokeStyle = `rgba(${ckr},${ckg},${ckb},${a.check})`;
-          ctx.lineWidth = 5.5;
+          ctx.lineWidth = a.checkWidth ?? 5.5;
           ctx.lineCap = "round";
           ctx.lineJoin = "round";
-          const p1 = [-26, 2], p2 = [-6, 22], p3 = [30, -18];
+          const p1 = [-52, 4], p2 = [-12, 44], p3 = [60, -36];
           const l1 = Math.hypot(p2[0] - p1[0], p2[1] - p1[1]);
           const l2 = Math.hypot(p3[0] - p2[0], p3[1] - p2[1]);
           const drawn = ease * (l1 + l2);
@@ -1826,11 +1831,12 @@ function PauseScreen({ onSaveAndPause, onComeBackLater, onResume }) {
 function HistoryScreen({ history, onBack }) {
   const sorted = [...history].sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt));
   const grouped = sorted.reduce((acc, entry) => {
-    if (!acc[entry.task]) acc[entry.task] = [];
-    acc[entry.task].push(entry);
+    const key = entry.taskId ?? entry.task;
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(entry);
     return acc;
   }, {});
-  const taskOrder = [...new Set(sorted.map(e => e.task))];
+  const taskOrder = [...new Set(sorted.map(e => e.taskId ?? e.task))];
 
   const formatDate = (iso) => {
     const d = new Date(iso);
@@ -2781,6 +2787,9 @@ export default function NudgeApp() {
 
   const [homeReason, setHomeReason] = useState("list");
   const prevScreen = useRef(null);
+  const lastScreen = useRef(null);
+  const activeCompletionTask = useRef("");
+  const handleDoneGuard = useRef("");
   const go = s => { prevScreen.current = screen; setScreen(s); };
   const goHome = (reason = "list") => { setHomeReason(reason); go("home"); };
   const task = tasks[0] || "Work on portfolio";
@@ -2788,14 +2797,23 @@ export default function NudgeApp() {
   const { recordSession, getInsights } = usePatternLearning();
   const currentStep = steps[stepIndex] || steps[0];
 
+  useEffect(() => {
+    if (screen === "inprogress" && lastScreen.current !== "inprogress") {
+      activeCompletionTask.current = tasks[0] || "Work on portfolio";
+      handleDoneGuard.current = "";
+    }
+    lastScreen.current = screen;
+  }, [screen, tasks]);
+
   const savePauseState = ({ note, progress }) => {
+    const pauseTask = activeCompletionTask.current || task;
     setPausedStep(currentStep);
-    setPausedTaskName(task);
+    setPausedTaskName(pauseTask);
     setPausedNote(note || "");
     setPausedProgress(progress || "");
     if (typeof window !== "undefined") {
       localStorage.setItem("nudge_paused_step", JSON.stringify(currentStep));
-      localStorage.setItem("nudge_paused_task", JSON.stringify(task));
+      localStorage.setItem("nudge_paused_task", JSON.stringify(pauseTask));
       localStorage.setItem("nudge_paused_note", JSON.stringify(note || ""));
       localStorage.setItem("nudge_paused_progress", JSON.stringify(progress || ""));
       localStorage.setItem("nudge_session_state", JSON.stringify("paused"));
@@ -2807,12 +2825,30 @@ export default function NudgeApp() {
 
   const handleDone = () => {
     if (!currentStep?.text) return;
-    setCompletedSteps(p => [...p, currentStep.text]);
-    setCompletedHistory(h => [
-      { task, step: currentStep.text, completedAt: new Date().toISOString() },
-      ...h,
-    ]);
-    recordSession(task, defaultEnergy, stepIndex, steps.length, defaultTime);
+    const taskId = activeCompletionTask.current || tasks[0] || "Work on portfolio";
+    const guardKey = `${taskId}::${stepIndex}::${currentStep.text}`;
+    if (handleDoneGuard.current === guardKey) return;
+    handleDoneGuard.current = guardKey;
+
+    setCompletedSteps(p => (p.includes(currentStep.text) ? p : [...p, currentStep.text]));
+    setCompletedHistory(h => {
+      const entry = {
+        taskId,
+        task: taskId,
+        step: currentStep.text,
+        stepIndex,
+        completedAt: new Date().toISOString(),
+      };
+      const isDupe = h.some(e =>
+        (e.taskId ?? e.task) === taskId &&
+        e.step === entry.step &&
+        e.stepIndex === entry.stepIndex &&
+        Math.abs(new Date(e.completedAt).getTime() - Date.now()) < 15000
+      );
+      if (isDupe) return h;
+      return [entry, ...h];
+    });
+    recordSession(taskId, defaultEnergy, stepIndex, steps.length, defaultTime);
     const next = stepIndex + 1;
     const c = sessionCount + 1;
     setSessionCount(c);
