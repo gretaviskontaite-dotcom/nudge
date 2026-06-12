@@ -1831,7 +1831,7 @@ function SimplifyScreen({ next, onStillTooMuch, step }) {
         </Card>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <BtnPrimary onClick={next}>I can do that</BtnPrimary>
+          <BtnPrimary onClick={next}>That feels doable</BtnPrimary>
           <BtnSecondary onClick={onStillTooMuch || next}>Still too much</BtnSecondary>
         </div>
       </div>
