@@ -1863,11 +1863,16 @@ function InProgressScreen({ gatherPhase, onGatherPhaseChange, onDone, onPause, o
   );
 }
 
-const SIMPLIFY_TOTAL_MS = 1550;
+const SIMPLIFY_TOTAL_MS = 1900;
 const SIMPLIFY_HOLD_MS = 580;
 const SIMPLIFY_CONDENSE_MS = 620;
 const SIMPLIFY_REVEAL_START_MS = 860;
 const SIMPLIFY_REVEAL_MS = 520;
+const SIMPLIFY_CAPTION_START_MS = 1060;
+const SIMPLIFY_CAPTION_MS = 480;
+const SIMPLIFY_BUTTONS_START_MS = 1260;
+const SIMPLIFY_BUTTONS_STAGGER_MS = 110;
+const SIMPLIFY_BUTTONS_MS = 440;
 
 function simplifyClamp(v, lo = 0, hi = 1) {
   return Math.max(lo, Math.min(hi, v));
@@ -1918,6 +1923,17 @@ function SimplifyScreen({ next, onStillTooMuch, step }) {
     simplifyClamp((elapsed - SIMPLIFY_REVEAL_START_MS) / SIMPLIFY_REVEAL_MS)
   );
   const strikeT = simplifyEaseInOutCubic(simplifyClamp((condenseT - 0.18) / 0.82));
+  const strikeDone = strikeT >= 0.999;
+  const captionT = simplifyEaseOutQuart(
+    simplifyClamp((elapsed - SIMPLIFY_CAPTION_START_MS) / SIMPLIFY_CAPTION_MS)
+  );
+  const primaryBtnT = simplifyEaseOutQuart(
+    simplifyClamp((elapsed - SIMPLIFY_BUTTONS_START_MS) / SIMPLIFY_BUTTONS_MS)
+  );
+  const secondaryBtnT = simplifyEaseOutQuart(
+    simplifyClamp((elapsed - SIMPLIFY_BUTTONS_START_MS - SIMPLIFY_BUTTONS_STAGGER_MS) / SIMPLIFY_BUTTONS_MS)
+  );
+  const breatheActive = !reducedMotion && progress >= 1;
 
   const introBg = isDark ? "45,42,69" : "255,248,236";
   const introBorder = isDark ? "124,111,205" : "201,162,74";
@@ -1964,9 +1980,10 @@ function SimplifyScreen({ next, onStillTooMuch, step }) {
 
   return (
     <>
+      <style>{`@keyframes simplifyBreathe { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }`}</style>
       <div style={{ marginBottom: 16, flexShrink: 0 }}>
         <Label color={C.warning500}>Let's Simplify</Label>
-        <div style={{ ...T.heading, color: "var(--n9)", marginBottom: 8 }}>That one felt like too much?</div>
+        <div style={{ ...T.heading, fontFamily: "'DM Serif Display', serif", color: "var(--n9)", marginBottom: 8 }}>That one felt like too much?</div>
         <div style={{ ...T.small, color: "var(--n7)", marginBottom: 0 }}>No problem. Here's something smaller.</div>
       </div>
 
@@ -2001,23 +2018,28 @@ function SimplifyScreen({ next, onStillTooMuch, step }) {
                 fontWeight: textWeight,
                 lineHeight: 1.45,
                 color: `rgb(${Math.round(textRgb.r)}, ${Math.round(textRgb.g)}, ${Math.round(textRgb.b)})`,
+                textDecoration: strikeDone ? "line-through" : "none",
+                textDecorationColor: strikeColor,
+                textDecorationThickness: 1.5,
               }}>
                 {originalText}
-                <span
-                  aria-hidden
-                  style={{
-                    position: "absolute",
-                    left: 0,
-                    right: 0,
-                    top: "54%",
-                    height: 1.5,
-                    borderRadius: 1,
-                    background: strikeColor,
-                    opacity: strikeT,
-                    transform: `scaleX(${strikeT})`,
-                    transformOrigin: "left center",
-                  }}
-                />
+                {!strikeDone && (
+                  <span
+                    aria-hidden
+                    style={{
+                      position: "absolute",
+                      left: 0,
+                      right: 0,
+                      top: "54%",
+                      height: 1.5,
+                      borderRadius: 1,
+                      background: strikeColor,
+                      opacity: strikeT,
+                      transform: `scaleX(${strikeT})`,
+                      transformOrigin: "left center",
+                    }}
+                  />
+                )}
               </div>
             </div>
           </div>
@@ -2034,23 +2056,63 @@ function SimplifyScreen({ next, onStillTooMuch, step }) {
               transformOrigin: "center top",
               willChange: reducedMotion ? undefined : "transform",
             }}>
-            <Card style={{
-              marginBottom: 0,
-              ...smallerCardStyle,
-            }}>
-              <div style={{
-                ...T.subtitle,
-                color: isDark ? "#EDEAE4" : "var(--n9)",
-                fontWeight: 700,
-                lineHeight: 1.45,
+            <div style={{ position: "relative" }}>
+              <div
+                aria-hidden
+                style={{
+                  position: "absolute",
+                  inset: -3,
+                  borderRadius: CARD_RADIUS + 3,
+                  boxShadow: isDark
+                    ? "0 10px 36px rgba(111,208,172,0.20), 0 0 64px rgba(111,208,172,0.14)"
+                    : "0 10px 32px rgba(107,191,154,0.18), 0 0 56px rgba(95,191,155,0.12)",
+                  opacity: breatheActive ? undefined : 0,
+                  animation: breatheActive ? "simplifyBreathe 4.5s ease-in-out infinite" : "none",
+                  pointerEvents: "none",
+                }}
+              />
+              <Card style={{
+                marginBottom: 0,
+                ...smallerCardStyle,
               }}>
-                {smallerText}
-              </div>
-            </Card>
+                <div style={{
+                  ...T.label,
+                  color: isDark ? "#6FD0AC" : C.success500,
+                  marginBottom: 10,
+                }}>
+                  Try this instead
+                </div>
+                <div style={{
+                  ...T.subtitle,
+                  color: isDark ? "#EDEAE4" : "var(--n9)",
+                  fontWeight: 700,
+                  lineHeight: 1.45,
+                }}>
+                  {smallerText}
+                </div>
+              </Card>
+            </div>
             </div>
           </div>
         </div>
-        <div style={{ flex: 1, minHeight: FOCUS_CAPTION_MIN_H, width: "100%" }} />
+        <div style={{
+          flex: 1,
+          minHeight: FOCUS_CAPTION_MIN_H,
+          width: "100%",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}>
+          <div style={{
+            ...T.small,
+            color: C.success500,
+            fontWeight: 600,
+            textAlign: "center",
+            opacity: captionT,
+          }}>
+            Smaller still counts.
+          </div>
+        </div>
 
         <div style={{
           flexShrink: 0,
@@ -2060,8 +2122,20 @@ function SimplifyScreen({ next, onStillTooMuch, step }) {
           gap: 12,
           justifyContent: "flex-end",
         }}>
-          <BtnPrimary onClick={next}>That feels doable</BtnPrimary>
-          <BtnSecondary onClick={onStillTooMuch || next}>Still too much</BtnSecondary>
+          <div style={{
+            opacity: primaryBtnT,
+            transform: `translateY(${simplifyLerp(6, 0, primaryBtnT)}px)`,
+            pointerEvents: primaryBtnT > 0.4 ? "auto" : "none",
+          }}>
+            <BtnPrimary onClick={next}>That feels doable</BtnPrimary>
+          </div>
+          <div style={{
+            opacity: secondaryBtnT,
+            transform: `translateY(${simplifyLerp(6, 0, secondaryBtnT)}px)`,
+            pointerEvents: secondaryBtnT > 0.4 ? "auto" : "none",
+          }}>
+            <BtnSecondary onClick={onStillTooMuch || next}>Still too much</BtnSecondary>
+          </div>
         </div>
       </div>
     </>
