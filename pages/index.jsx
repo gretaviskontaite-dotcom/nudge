@@ -1863,16 +1863,15 @@ function InProgressScreen({ gatherPhase, onGatherPhaseChange, onDone, onPause, o
   );
 }
 
-const SIMPLIFY_TOTAL_MS = 1900;
-const SIMPLIFY_HOLD_MS = 580;
-const SIMPLIFY_CONDENSE_MS = 620;
-const SIMPLIFY_REVEAL_START_MS = 860;
-const SIMPLIFY_REVEAL_MS = 520;
-const SIMPLIFY_CAPTION_START_MS = 1060;
-const SIMPLIFY_CAPTION_MS = 480;
-const SIMPLIFY_BUTTONS_START_MS = 1260;
+const SIMPLIFY_TOTAL_MS = 1200;
+const SIMPLIFY_ASIDE_START_MS = 180;
+const SIMPLIFY_ASIDE_MS = 420;
+const SIMPLIFY_HERO_START_MS = 420;
+const SIMPLIFY_HERO_MS = 520;
+const SIMPLIFY_BUTTONS_START_MS = 820;
 const SIMPLIFY_BUTTONS_STAGGER_MS = 110;
 const SIMPLIFY_BUTTONS_MS = 440;
+const SIMPLIFY_HERO_PAD = 26;
 
 function simplifyClamp(v, lo = 0, hi = 1) {
   return Math.max(lo, Math.min(hi, v));
@@ -1880,10 +1879,6 @@ function simplifyClamp(v, lo = 0, hi = 1) {
 
 function simplifyLerp(a, b, t) {
   return a + (b - a) * t;
-}
-
-function simplifyEaseInOutCubic(t) {
-  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 }
 
 function simplifyEaseOutQuart(t) {
@@ -1916,16 +1911,11 @@ function SimplifyScreen({ next, onStillTooMuch, step }) {
   }, [originalText]);
 
   const elapsed = progress * SIMPLIFY_TOTAL_MS;
-  const condenseT = simplifyEaseInOutCubic(
-    simplifyClamp((elapsed - SIMPLIFY_HOLD_MS) / SIMPLIFY_CONDENSE_MS)
+  const asideT = simplifyEaseOutQuart(
+    simplifyClamp((elapsed - SIMPLIFY_ASIDE_START_MS) / SIMPLIFY_ASIDE_MS)
   );
-  const revealT = simplifyEaseOutQuart(
-    simplifyClamp((elapsed - SIMPLIFY_REVEAL_START_MS) / SIMPLIFY_REVEAL_MS)
-  );
-  const strikeT = simplifyEaseInOutCubic(simplifyClamp((condenseT - 0.18) / 0.82));
-  const strikeDone = strikeT >= 0.999;
-  const captionT = simplifyEaseOutQuart(
-    simplifyClamp((elapsed - SIMPLIFY_CAPTION_START_MS) / SIMPLIFY_CAPTION_MS)
+  const heroT = simplifyEaseOutQuart(
+    simplifyClamp((elapsed - SIMPLIFY_HERO_START_MS) / SIMPLIFY_HERO_MS)
   );
   const primaryBtnT = simplifyEaseOutQuart(
     simplifyClamp((elapsed - SIMPLIFY_BUTTONS_START_MS) / SIMPLIFY_BUTTONS_MS)
@@ -1933,55 +1923,17 @@ function SimplifyScreen({ next, onStillTooMuch, step }) {
   const secondaryBtnT = simplifyEaseOutQuart(
     simplifyClamp((elapsed - SIMPLIFY_BUTTONS_START_MS - SIMPLIFY_BUTTONS_STAGGER_MS) / SIMPLIFY_BUTTONS_MS)
   );
-  const breatheActive = !reducedMotion && progress >= 1;
 
-  const introBg = isDark ? "45,42,69" : "255,248,236";
-  const introBorder = isDark ? "124,111,205" : "201,162,74";
-  const cardScale = simplifyLerp(1, 0.975, condenseT);
-  const cardPad = simplifyLerp(CARD_PAD, 0, condenseT);
-  const cardRadius = simplifyLerp(CARD_RADIUS, 6, condenseT);
-  const cardBgAlpha = simplifyLerp(1, 0, condenseT);
-  const cardBorderAlpha = simplifyLerp(isDark ? 0.18 : 0.18, 0, condenseT);
-  const textSize = simplifyLerp(18, 14, condenseT);
-  const textWeight = simplifyLerp(700, 500, condenseT);
-  const mutedLight = { r: 107, g: 107, b: 107 };
-  const mutedDark = { r: 122, g: 122, b: 136 };
-  const textRgb = isDark
-    ? {
-        r: simplifyLerp(240, mutedDark.r, condenseT),
-        g: simplifyLerp(238, mutedDark.g, condenseT),
-        b: simplifyLerp(248, mutedDark.b, condenseT),
-      }
-    : {
-        r: simplifyLerp(42, mutedLight.r, condenseT),
-        g: simplifyLerp(39, mutedLight.g, condenseT),
-        b: simplifyLerp(47, mutedLight.b, condenseT),
-      };
-  const strikeColor = isDark ? "#7A7A88" : C.neutral500;
-  const smallerCardStyle = isDark
-    ? {
-        background: "#1A2D24",
-        border: `1px solid rgba(111,208,172,${simplifyLerp(0, 0.42, revealT)})`,
-        boxShadow: [
-          `0 0 0 1px rgba(111,208,172,${simplifyLerp(0, 0.12, revealT)})`,
-          `0 10px 36px rgba(111,208,172,${simplifyLerp(0, 0.14, revealT)})`,
-          `0 0 56px rgba(111,208,172,${simplifyLerp(0, 0.08, revealT)})`,
-        ].join(", "),
-      }
-    : {
-        background: C.success100,
-        border: `1px solid rgba(107,191,154,${simplifyLerp(0, 0.38, revealT)})`,
-        boxShadow: [
-          `0 0 0 1px rgba(107,191,154,${simplifyLerp(0, 0.1, revealT)})`,
-          `0 10px 32px rgba(107,191,154,${simplifyLerp(0, 0.12, revealT)})`,
-          `0 0 48px rgba(95,191,155,${simplifyLerp(0, 0.08, revealT)})`,
-        ].join(", "),
-      };
+  const asideColor = isDark ? "rgba(240,238,248,0.5)" : "rgba(42,39,47,0.5)";
+  const heroBg = isDark ? "#1A2D24" : C.neutral50;
+  const heroBorder = isDark ? "rgba(111,208,172,0.48)" : "rgba(107,191,154,0.42)";
+  const heroGlow = isDark
+    ? "0 8px 40px rgba(111,208,172,0.16), 0 0 48px rgba(111,208,172,0.08)"
+    : "0 8px 36px rgba(107,191,154,0.14), 0 0 44px rgba(95,191,155,0.07)";
 
   return (
     <>
-      <style>{`@keyframes simplifyBreathe { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }`}</style>
-      <div style={{ marginBottom: 16, flexShrink: 0 }}>
+      <div style={{ marginBottom: 28, flexShrink: 0 }}>
         <Label color={C.warning500}>Let's Simplify</Label>
         <div style={{ ...T.heading, fontFamily: "'DM Serif Display', serif", color: "var(--n9)", marginBottom: 8 }}>That one felt like too much?</div>
         <div style={{ ...T.small, color: "var(--n7)", marginBottom: 0 }}>No problem. Here's something smaller.</div>
@@ -1994,125 +1946,53 @@ function SimplifyScreen({ next, onStillTooMuch, step }) {
           maxWidth: GATHER_CANVAS_W,
           margin: "0 auto",
           flexShrink: 0,
-          display: "flex",
-          flexDirection: "column",
-          gap: 14,
         }}>
+          <p style={{
+            margin: "0 0 36px",
+            fontFamily: "Inter",
+            fontSize: 14,
+            fontWeight: 400,
+            fontStyle: "italic",
+            lineHeight: 1.55,
+            color: asideColor,
+            textAlign: "center",
+            opacity: asideT,
+            transform: `translateY(${simplifyLerp(6, 0, asideT)}px)`,
+          }}>
+            instead of{" "}
+            <span style={{
+              textDecoration: "line-through",
+              textDecorationColor: "currentColor",
+            }}>
+              {originalText}
+            </span>
+          </p>
+
           <div style={{
-            transform: `scale(${cardScale})`,
-            transformOrigin: "center top",
-            willChange: reducedMotion ? undefined : "transform",
+            opacity: heroT,
+            transform: `translateY(${simplifyLerp(12, 0, heroT)}px)`,
           }}>
             <div style={{
-              borderRadius: cardRadius,
-              padding: cardPad,
-              background: `rgba(${introBg}, ${cardBgAlpha})`,
-              border: cardBorderAlpha > 0.01
-                ? `1px solid rgba(${introBorder}, ${cardBorderAlpha})`
-                : "1px solid transparent",
+              borderRadius: CARD_RADIUS,
+              padding: SIMPLIFY_HERO_PAD,
+              background: heroBg,
+              border: `1.5px solid ${heroBorder}`,
+              boxShadow: heroGlow,
             }}>
               <div style={{
-                position: "relative",
                 fontFamily: "Inter",
-                fontSize: textSize,
-                fontWeight: textWeight,
+                fontSize: 20,
+                fontWeight: 600,
                 lineHeight: 1.45,
-                color: `rgb(${Math.round(textRgb.r)}, ${Math.round(textRgb.g)}, ${Math.round(textRgb.b)})`,
-                textDecoration: strikeDone ? "line-through" : "none",
-                textDecorationColor: strikeColor,
-                textDecorationThickness: 1.5,
+                color: isDark ? "#EDEAE4" : "var(--n9)",
+                textAlign: "center",
               }}>
-                {originalText}
-                {!strikeDone && (
-                  <span
-                    aria-hidden
-                    style={{
-                      position: "absolute",
-                      left: 0,
-                      right: 0,
-                      top: "54%",
-                      height: 1.5,
-                      borderRadius: 1,
-                      background: strikeColor,
-                      opacity: strikeT,
-                      transform: `scaleX(${strikeT})`,
-                      transformOrigin: "left center",
-                    }}
-                  />
-                )}
+                {smallerText}
               </div>
             </div>
           </div>
-
-          <div style={{
-            maxHeight: `${simplifyLerp(0, 260, revealT)}px`,
-            overflow: "hidden",
-            opacity: revealT,
-            pointerEvents: revealT > 0.35 ? "auto" : "none",
-            willChange: reducedMotion ? undefined : "opacity, max-height",
-          }}>
-            <div style={{
-              transform: `translateY(${simplifyLerp(14, 0, revealT)}px) scale(${simplifyLerp(0.985, 1, revealT)})`,
-              transformOrigin: "center top",
-              willChange: reducedMotion ? undefined : "transform",
-            }}>
-            <div style={{ position: "relative" }}>
-              <div
-                aria-hidden
-                style={{
-                  position: "absolute",
-                  inset: -3,
-                  borderRadius: CARD_RADIUS + 3,
-                  boxShadow: isDark
-                    ? "0 10px 36px rgba(111,208,172,0.20), 0 0 64px rgba(111,208,172,0.14)"
-                    : "0 10px 32px rgba(107,191,154,0.18), 0 0 56px rgba(95,191,155,0.12)",
-                  opacity: breatheActive ? undefined : 0,
-                  animation: breatheActive ? "simplifyBreathe 4.5s ease-in-out infinite" : "none",
-                  pointerEvents: "none",
-                }}
-              />
-              <Card style={{
-                marginBottom: 0,
-                ...smallerCardStyle,
-              }}>
-                <div style={{
-                  ...T.label,
-                  color: isDark ? "#6FD0AC" : C.success500,
-                  marginBottom: 10,
-                }}>
-                  Try this instead
-                </div>
-                <div style={{
-                  ...T.subtitle,
-                  color: isDark ? "#EDEAE4" : "var(--n9)",
-                  fontWeight: 700,
-                  lineHeight: 1.45,
-                }}>
-                  {smallerText}
-                </div>
-              </Card>
-            </div>
-            </div>
-          </div>
         </div>
-        <div style={{
-          flex: 1,
-          minHeight: FOCUS_CAPTION_MIN_H,
-          width: "100%",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-        }}>
-          <div style={{
-            ...T.small,
-            color: C.success500,
-            fontWeight: 600,
-            textAlign: "center",
-            opacity: captionT,
-          }}>
-            Smaller still counts.
-          </div>
-        </div>
+        <div style={{ flex: 1, minHeight: FOCUS_CAPTION_MIN_H, width: "100%" }} />
 
         <div style={{
           flexShrink: 0,
