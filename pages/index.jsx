@@ -2229,22 +2229,217 @@ function HistoryScreen({ history, onBack }) {
   );
 }
 
+function homeLerp(a, b, k) {
+  return a + (b - a) * k;
+}
+function homeLerpCol(c1, c2, k) {
+  return c1.map((v, i) => Math.round(homeLerp(v, c2[i], k)));
+}
+
+const HOME_PALETTES = {
+  morning: {
+    top: [255, 208, 188],
+    horizon: [52, 78, 132],
+    bottom: [92, 168, 148],
+    serif: [42, 36, 56],
+    muted: [110, 100, 130],
+    accent: [86, 70, 175],
+    cardBg: [70, 60, 110],
+    cardAlpha: 0.12,
+    starOpacity: 0,
+  },
+  afternoon: {
+    top: [218, 232, 222],
+    horizon: [168, 158, 205],
+    bottom: [108, 92, 152],
+    serif: [42, 38, 64],
+    muted: [120, 110, 142],
+    accent: [92, 75, 178],
+    cardBg: [50, 38, 95],
+    cardAlpha: 0.14,
+    starOpacity: 0,
+  },
+  evening: {
+    top: [16, 20, 46],
+    horizon: [118, 72, 138],
+    bottom: [8, 5, 22],
+    serif: [237, 234, 228],
+    muted: [160, 152, 188],
+    accent: [180, 172, 219],
+    cardBg: [180, 172, 219],
+    cardAlpha: 0.14,
+    starOpacity: 0.45,
+  },
+};
+
+function homePaletteForHour(h) {
+  const lerpPal = (a, b, k) => ({
+    top: homeLerpCol(a.top, b.top, k),
+    horizon: homeLerpCol(a.horizon, b.horizon, k),
+    bottom: homeLerpCol(a.bottom, b.bottom, k),
+    serif: homeLerpCol(a.serif, b.serif, k),
+    muted: homeLerpCol(a.muted, b.muted, k),
+    accent: homeLerpCol(a.accent, b.accent, k),
+    cardBg: homeLerpCol(a.cardBg, b.cardBg, k),
+    cardAlpha: homeLerp(a.cardAlpha, b.cardAlpha, k),
+    starOpacity: homeLerp(a.starOpacity, b.starOpacity, k),
+  });
+
+  if (h >= 5 && h < 11) return HOME_PALETTES.morning;
+  if (h >= 11 && h < 13) return lerpPal(HOME_PALETTES.morning, HOME_PALETTES.afternoon, (h - 11) / 2);
+  if (h >= 13 && h < 17) return HOME_PALETTES.afternoon;
+  if (h >= 17 && h < 19) return lerpPal(HOME_PALETTES.afternoon, HOME_PALETTES.evening, (h - 17) / 2);
+  if (h >= 19 || h < 3) return HOME_PALETTES.evening;
+  return lerpPal(HOME_PALETTES.evening, HOME_PALETTES.morning, (h - 3) / 2);
+}
+
+function homeFractionalHour(date = new Date()) {
+  return date.getHours() + date.getMinutes() / 60 + date.getSeconds() / 3600;
+}
+
+function homeGreeting(returning, reason) {
+  if (reason === "exit") return { hint: "That's okay.", line1: "Welcome back.", line2: "What now?" };
+  if (reason === "done") return { hint: "Well done.", line1: "Welcome back.", line2: "What now?" };
+  if (returning) return { hint: null, line1: "Welcome back.", line2: "What now?" };
+  return { hint: null, line1: "What would you like", line2: "to work on?" };
+}
+
 function HomeScreen({ onResume, onContinueSession, inProgressSession, tasks, setTasks, onHistory, reason }) {
-  const isDark = useContext(IsDarkContext);
-  const [input, setInput] = useState("");
+  const canvasRef = useRef(null);
+  const containerRef = useRef(null);
+  const draftRef = useRef(null);
+  const typingTimer = useRef(null);
+  const paletteRef = useRef(homePaletteForHour(homeFractionalHour()));
+  const [draft, setDraft] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const isExit = reason === "exit";
-  const isDone = reason === "done";
-  const isList = !isExit && !isDone;
+  const [isTyping, setIsTyping] = useState(false);
+  const [palette, setPalette] = useState(() => homePaletteForHour(homeFractionalHour()));
+
+  const returning = tasks.length > 0 || !!inProgressSession;
+  const greeting = homeGreeting(returning, reason);
+  const canStart = tasks.length > 0;
 
   useEffect(() => {
-    setTasks(p => {
-      setSelectedIndex(i => (p.length === 0 ? 0 : Math.min(i, p.length - 1)));
-      return p;
-    });
+    setSelectedIndex(i => (tasks.length === 0 ? 0 : Math.min(i, tasks.length - 1)));
   }, [tasks.length]);
 
-  const addTask = () => { if (input.trim()) { setTasks(p => [...p, input.trim()]); setInput(""); } };
+  useEffect(() => {
+    const tick = () => {
+      const h = homeFractionalHour();
+      const next = homePaletteForHour(h);
+      paletteRef.current = next;
+      setPalette(next);
+    };
+    tick();
+    const id = setInterval(tick, 60000);
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const container = containerRef.current;
+    if (!canvas || !container) return;
+    const ctx = canvas.getContext("2d");
+    const DPR = Math.min(window.devicePixelRatio || 1, 2);
+
+    const stars = [
+      { xRatio: 0.24, yRatio: 0.16, size: 1.0, twinkle: 0.2, speed: 0.35 },
+      { xRatio: 0.74, yRatio: 0.24, size: 0.75, twinkle: 2.1, speed: 0.5 },
+    ];
+
+    let raf;
+    let W = 0;
+    let H = 0;
+    const startTime = performance.now();
+
+    const resize = () => {
+      W = container.clientWidth;
+      H = container.clientHeight;
+      canvas.width = Math.max(1, W * DPR);
+      canvas.height = Math.max(1, H * DPR);
+      canvas.style.width = "100%";
+      canvas.style.height = "100%";
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    };
+
+    const rgb = (c) => `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
+    const rgba = (c, a) => `rgba(${c[0]}, ${c[1]}, ${c[2]}, ${a})`;
+    const mixStop = (c1, c2, k) => rgb(homeLerpCol(c1, c2, k));
+
+    const draw = (now) => {
+      if (W <= 0 || H <= 0) {
+        raf = requestAnimationFrame(draw);
+        return;
+      }
+
+      const pal = paletteRef.current;
+      const t = (now - startTime) / 1000;
+      const driftAmp = isTyping ? 1 : 0.4;
+      const drift = Math.sin(t * 0.15) * driftAmp * 0.006;
+      const horizon = 0.62 + drift;
+      const blend = 0.11;
+      const core = blend / 3;
+
+      const grad = ctx.createLinearGradient(0, 0, 0, H);
+      grad.addColorStop(0, rgb(pal.top));
+      grad.addColorStop(Math.max(0, horizon - blend * 1.6), mixStop(pal.top, pal.horizon, 0.18));
+      grad.addColorStop(Math.max(0, horizon - blend * 0.95), mixStop(pal.top, pal.horizon, 0.42));
+      grad.addColorStop(Math.max(0, horizon - core), mixStop(pal.top, pal.horizon, 0.72));
+      grad.addColorStop(horizon, mixStop(pal.top, pal.horizon, 0.88));
+      grad.addColorStop(Math.min(1, horizon + core), mixStop(pal.horizon, pal.bottom, 0.16));
+      grad.addColorStop(Math.min(1, horizon + blend * 0.95), mixStop(pal.horizon, pal.bottom, 0.48));
+      grad.addColorStop(Math.min(1, horizon + blend * 1.6), mixStop(pal.horizon, pal.bottom, 0.74));
+      grad.addColorStop(1, rgb(pal.bottom));
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, W, H);
+
+      if (pal.starOpacity > 0) {
+        for (const s of stars) {
+          const tw = 0.45 + Math.sin(t * s.speed + s.twinkle) * 0.35;
+          const x = s.xRatio * W;
+          const y = s.yRatio * H;
+          ctx.beginPath();
+          ctx.arc(x, y, s.size, 0, Math.PI * 2);
+          ctx.fillStyle = rgba([255, 248, 238], pal.starOpacity * (0.35 + tw * 0.45));
+          ctx.fill();
+        }
+      }
+
+      raf = requestAnimationFrame(draw);
+    };
+
+    resize();
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(resize) : null;
+    ro?.observe(container);
+    window.addEventListener("resize", resize);
+    raf = requestAnimationFrame(draw);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      ro?.disconnect();
+      window.removeEventListener("resize", resize);
+    };
+  }, [isTyping]);
+
+  useEffect(() => {
+    paletteRef.current = palette;
+  }, [palette]);
+
+  const onDraftInput = (value) => {
+    setDraft(value);
+    setIsTyping(true);
+    if (typingTimer.current) clearTimeout(typingTimer.current);
+    typingTimer.current = setTimeout(() => setIsTyping(false), 1500);
+  };
+
+  const addTask = () => {
+    const text = draft.trim();
+    if (!text) return;
+    setTasks(p => [...p, text]);
+    setDraft("");
+    requestAnimationFrame(() => draftRef.current?.focus());
+  };
+
   const removeTask = (i) => {
     setTasks(p => p.filter((_, idx) => idx !== i));
     setSelectedIndex(prev => {
@@ -2254,122 +2449,245 @@ function HomeScreen({ onResume, onContinueSession, inProgressSession, tasks, set
     });
   };
 
+  const handleReady = () => {
+    const picked = tasks[selectedIndex];
+    if (!picked) return;
+    onResume(picked);
+  };
+
+  const rgb = (c) => `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
+  const rgba = (c, a) => `rgba(${c[0]}, ${c[1]}, ${c[2]}, ${a})`;
+
   return (
-    <>
-      {/* Header */}
-      <div style={{ marginBottom: 28 }}>
-        {isExit && <div style={{ ...T.hint, marginBottom: 4 }}>{"That's okay."}</div>}
-        {isDone && <div style={{ ...T.hint, marginBottom: 4 }}>{"Well done."}</div>}
-        <div style={{ ...T.heading, color: "var(--n9)", marginBottom: 4 }}>Your list</div>
-        <div style={{ ...T.small, color: "var(--n7)" }}>
-          {isList ? "What would you like to work on?" : "Come back whenever you're ready."}
-        </div>
-        {tasks.length > 1 && (
-          <div style={{ ...T.hint, marginTop: 8 }}>Tap a task to select it</div>
-        )}
-      </div>
+    <div
+      ref={containerRef}
+      className="home-landscape"
+      style={{
+        position: "relative",
+        flex: 1,
+        minHeight: "100dvh",
+        width: "100%",
+        overflow: "hidden",
+      }}
+    >
+      <canvas
+        ref={canvasRef}
+        aria-hidden
+        style={{ position: "absolute", inset: 0, display: "block", width: "100%", height: "100%" }}
+      />
 
-      {inProgressSession ? (
-        <Card style={{ background: isDark ? "#2A2445" : C.accent100, marginBottom: 16, borderRadius: 20 }}>
-          <div style={{ ...T.label, color: C.accent500, marginBottom: 6 }}>You were here</div>
-          <div style={{ ...T.small, color: isDark ? "var(--n9)" : C.accent700, marginBottom: 4 }}>
-            {inProgressSession.taskName}
-          </div>
-          <div style={{
-            ...T.subtitle, color: "var(--n9)", marginBottom: 16, fontWeight: 700, lineHeight: 1.4,
-          }}>
-            {inProgressSession.step?.text || "Your step is loading…"}
-          </div>
-          <BtnPrimary onClick={onContinueSession}>Continue where you left off</BtnPrimary>
-        </Card>
-      ) : null}
-
-      {/* Editable task list */}
-      <Card style={{ marginBottom: 12, gap: 0, padding: 0, overflow: "hidden" }}>
-        {tasks.length === 0 && (
-          <div style={{
-            padding: "32px 20px", display: "flex", flexDirection: "column",
-            alignItems: "center", gap: 12, textAlign: "center",
-          }}>
-            <svg width="56" height="56" viewBox="0 0 56 56" fill="none">
-              <circle cx="28" cy="28" r="26" fill={C.accent100}/>
-              <path d="M28 40V28" stroke={C.accent500} strokeWidth="2" strokeLinecap="round"/>
-              <path d="M28 32 C23 29 18 31 18 25 C23 25 28 29 28 32Z" fill={C.accent300}/>
-              <path d="M28 37 C33 34 38 36 38 30 C33 30 28 34 28 37Z" fill={C.accent500}/>
-            </svg>
-            <div style={{ ...T.subtitle, color: "var(--n7)", lineHeight: 1.6 }}>
-              {"Your list is clear."}<br/>
-              <span style={{ ...T.hint }}>Add something when you're ready.</span>
-            </div>
-          </div>
-        )}
+      <div style={{
+        position: "absolute",
+        inset: 0,
+        padding: "26px 28px max(32px, env(safe-area-inset-bottom))",
+        display: "flex",
+        flexDirection: "column",
+        zIndex: 1,
+        boxSizing: "border-box",
+      }}>
         <div style={{
-          maxHeight: tasks.length >= 5 ? 240 : "none",
-          overflowY: tasks.length >= 5 ? "auto" : "visible",
-          padding: `0 ${CARD_PAD}px`,
+          flex: "0 0 52%",
+          paddingTop: 30,
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "flex-end",
         }}>
-          {tasks.map((t, i) => (
-            <div key={i}>
-              <div
-                onClick={() => setSelectedIndex(i)}
-                style={{
-                  display: "flex", alignItems: "center", gap: 12,
-                  padding: "12px 0", cursor: "pointer",
-                }}
-              >
-                <div style={{
-                  width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
-                  background: selectedIndex === i ? C.accent500 : C.accent300,
-                }} />
-                <span style={{ ...T.body, color: "var(--n9)", flex: 1 }}>{t}</span>
-                <button
-                  onClick={(e) => { e.stopPropagation(); removeTask(i); }}
-                  style={{
-                    background: "none", border: "none", color: C.neutral300,
-                    fontSize: 16, cursor: "pointer", padding: "0 4px", lineHeight: 1,
-                  }}
-                >✕</button>
-              </div>
-              <Divider />
-            </div>
-          ))}
-        </div>
-
-        <div style={{ padding: `0 ${CARD_PAD}px` }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0" }}>
-            <div style={{ width: 8, height: 8, borderRadius: "50%", background: C.neutral200, flexShrink: 0 }} />
-            <input
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && addTask()}
-              placeholder={tasks.length === 0 ? "Something you've been putting off…" : "Another thing…"}
+          {greeting.hint ? (
+            <div
+              className="home-rise"
               style={{
-                border: "none", outline: "none", flex: 1,
-                ...T.body, color: "var(--n9)",
-                background: "transparent", fontFamily: "Inter",
+                margin: "0 0 8px",
+                fontSize: 14,
+                fontWeight: 500,
+                color: rgba(palette.muted, 0.85),
+                opacity: 0,
+                animation: "homeRise 800ms 120ms cubic-bezier(.3,.9,.4,1) forwards",
               }}
-            />
-            {input.trim() && (
-              <button onClick={addTask} style={{
-                background: C.accent500, color: C.neutral50, border: "none",
-                borderRadius: 8, padding: "6px 12px", fontSize: 13,
-                fontWeight: 600, cursor: "pointer", fontFamily: "Inter", flexShrink: 0,
-              }}>Add</button>
-            )}
-          </div>
-        </div>
-      </Card>
+            >
+              {greeting.hint}
+            </div>
+          ) : null}
+          <h1 style={{
+            margin: greeting.hint ? "0 0 0" : "16px 0 0",
+            fontFamily: "'DM Serif Display', Georgia, serif",
+            fontWeight: 400,
+            fontSize: 38,
+            lineHeight: 1.05,
+            letterSpacing: "-0.015em",
+            color: rgb(palette.serif),
+          }}>
+            <span className="home-rise home-line1">{greeting.line1}</span>
+            <br />
+            <span className="home-rise home-line2">{greeting.line2}</span>
+          </h1>
 
-      <BtnPrimary
-        onClick={() => tasks[selectedIndex] && onResume(tasks[selectedIndex])}
-        disabled={tasks.length === 0}
-      >{"I'm ready now"}</BtnPrimary>
-      <button onClick={onHistory} style={{
-        background: "none", border: "none", width: "100%",
-        marginTop: 12, padding: "8px 0", cursor: "pointer", fontFamily: "Inter",
-        ...T.hint, fontSize: 14, color: C.neutral300, textDecoration: "underline",
-      }}>History</button>
-    </>
+          <div style={{
+            marginTop: 4,
+            marginBottom: 28,
+            display: "flex",
+            flexDirection: "column",
+            gap: 2,
+            maxHeight: tasks.length >= 5 ? 168 : "none",
+            overflowY: tasks.length >= 5 ? "auto" : "visible",
+          }}>
+            {tasks.map((t, i) => (
+              <div
+                key={`${i}-${t}`}
+                style={{ display: "flex", alignItems: "center", gap: 10 }}
+              >
+                <button
+                  type="button"
+                  aria-label={`Select task ${i + 1}`}
+                  onClick={() => setSelectedIndex(i)}
+                  style={{
+                    width: 7,
+                    height: 7,
+                    borderRadius: "50%",
+                    flexShrink: 0,
+                    padding: 0,
+                    border: "none",
+                    cursor: "pointer",
+                    background: selectedIndex === i
+                      ? rgb(palette.accent)
+                      : rgba(palette.serif, 0.28),
+                  }}
+                />
+                <input
+                  type="text"
+                  readOnly
+                  value={t}
+                  onClick={() => setSelectedIndex(i)}
+                  className="home-task-input"
+                  style={{
+                    color: rgb(palette.serif),
+                    borderColor: rgba(palette.serif, selectedIndex === i ? 0.42 : 0.18),
+                    opacity: selectedIndex === i ? 1 : 0.82,
+                    cursor: "pointer",
+                  }}
+                />
+                <button
+                  type="button"
+                  aria-label={`Remove ${t}`}
+                  onClick={() => removeTask(i)}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: rgba(palette.muted, 0.75),
+                    fontSize: 15,
+                    lineHeight: 1,
+                    cursor: "pointer",
+                    padding: "4px 2px",
+                    flexShrink: 0,
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{
+                width: 7,
+                height: 7,
+                borderRadius: "50%",
+                flexShrink: 0,
+                background: rgba(palette.serif, 0.18),
+              }} />
+              <input
+                ref={draftRef}
+                type="text"
+                value={draft}
+                onChange={(e) => onDraftInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && addTask()}
+                placeholder={tasks.length === 0 ? "Anything on your mind" : "Another thing…"}
+                className="home-task-input home-rise home-input"
+                style={{
+                  color: rgb(palette.serif),
+                  borderColor: rgba(palette.serif, 0.25),
+                }}
+              />
+              {draft.trim() ? (
+                <button
+                  type="button"
+                  className="home-add-btn"
+                  onClick={addTask}
+                  style={{ color: rgb(palette.accent) }}
+                >
+                  Add
+                </button>
+              ) : null}
+            </div>
+          </div>
+
+          <button
+            type="button"
+            className="home-primary-btn home-rise home-ready"
+            disabled={!canStart}
+            onClick={handleReady}
+            style={{
+              opacity: canStart ? 1 : 0.45,
+              cursor: canStart ? "pointer" : "default",
+            }}
+          >
+            I'm ready
+          </button>
+        </div>
+
+        <div style={{ flex: "0 0 14%" }} aria-hidden="true" />
+
+        <div style={{
+          flex: "1 1 auto",
+          display: "flex",
+          flexDirection: "column",
+          paddingTop: 18,
+        }}>
+          {inProgressSession ? (
+            <div
+              className="home-resume-card home-rise home-resume"
+              style={{
+                background: rgba(palette.cardBg, palette.cardAlpha),
+                borderColor: rgba(palette.cardBg, palette.cardAlpha + 0.1),
+              }}
+            >
+              <div style={{
+                fontSize: 11,
+                fontWeight: 700,
+                letterSpacing: "0.12em",
+                textTransform: "uppercase",
+                color: rgba(palette.serif, 0.65),
+              }}>
+                Where you left off
+              </div>
+              <div style={{
+                margin: "8px 0 14px",
+                fontSize: 15.5,
+                fontWeight: 500,
+                lineHeight: 1.35,
+                color: rgb(palette.serif),
+              }}>
+                {inProgressSession.step?.text || "Your step is loading…"}
+              </div>
+              <button
+                type="button"
+                className="home-resume-btn"
+                onClick={onContinueSession}
+                style={{ color: rgb(palette.accent) }}
+              >
+                Continue ›
+              </button>
+            </div>
+          ) : null}
+
+          <button
+            type="button"
+            className="home-history-link home-rise home-history"
+            onClick={onHistory}
+            style={{ color: rgba(palette.accent, 0.75) }}
+          >
+            History
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -4095,13 +4413,16 @@ export default function NudgeApp() {
     />,
   };
 
-  const shellBackground = screen === "session_complete"
-    ? doneShellBackground(isDark)
-    : screen === "inprogress"
-      ? (gatherPhase === "complete" ? doneShellBackground(isDark) : inProgressShellBackground(isDark))
-      : screen === "done"
-        ? doneShellBackground(isDark)
-        : (isDark ? "#1A1828" : C.neutral100);
+  const shellBackground = screen === "home"
+    ? "transparent"
+    : screen === "session_complete"
+      ? doneShellBackground(isDark)
+      : screen === "inprogress"
+        ? (gatherPhase === "complete" ? doneShellBackground(isDark) : inProgressShellBackground(isDark))
+        : screen === "done"
+          ? doneShellBackground(isDark)
+          : (isDark ? "#1A1828" : C.neutral100);
+  const isHome = screen === "home";
 
   return (
     <IsDarkContext.Provider value={isDark}>
@@ -4141,12 +4462,105 @@ html, body {
 }
 @keyframes drawCheck { from { stroke-dashoffset: 80; } to { stroke-dashoffset: 0; } }
 @keyframes ghostPulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
+@keyframes homeRise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.home-line1 { display: inline-block; opacity: 0; animation: homeRise 800ms 300ms cubic-bezier(.3,.9,.4,1) forwards; }
+.home-line2 { display: inline-block; opacity: 0; animation: homeRise 800ms 550ms cubic-bezier(.3,.9,.4,1) forwards; }
+.home-input { opacity: 0; animation: homeRise 800ms 850ms cubic-bezier(.3,.9,.4,1) forwards; }
+.home-ready { opacity: 0; animation: homeRise 800ms 1100ms cubic-bezier(.3,.9,.4,1) forwards; }
+.home-resume { opacity: 0; animation: homeRise 800ms 1400ms cubic-bezier(.3,.9,.4,1) forwards; }
+.home-history { opacity: 0; animation: homeRise 800ms 1700ms cubic-bezier(.3,.9,.4,1) forwards; }
+.home-task-input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid;
+  border-radius: 0;
+  padding: 6px 2px 8px;
+  font: inherit;
+  font-family: 'Inter', -apple-system, sans-serif;
+  font-size: 17px;
+  font-weight: 400;
+  outline: none;
+  transition: border-color 200ms ease;
+}
+.home-task-input::placeholder { color: currentColor; opacity: 0.45; }
+.home-task-input:focus { border-bottom-width: 1.5px; }
+.home-add-btn {
+  background: transparent;
+  border: 0;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 2px;
+  flex-shrink: 0;
+  letter-spacing: 0.02em;
+}
+.home-add-btn:hover { opacity: 0.75; }
+.home-primary-btn {
+  width: 100%;
+  background: #7C6FCD;
+  border: none;
+  border-radius: 999px;
+  padding: 17px 20px;
+  color: #fff;
+  font: inherit;
+  font-size: 16.5px;
+  font-weight: 700;
+  box-shadow: 0 6px 24px rgba(124,111,205,0.42);
+  transition: transform 150ms ease, background 150ms ease, opacity 250ms ease;
+}
+.home-primary-btn:hover:not(:disabled) { background: #6F61C4; transform: translateY(-1px); }
+.home-primary-btn:active:not(:disabled) { transform: scale(0.99); }
+.home-primary-btn:disabled { box-shadow: 0 6px 24px rgba(124,111,205,0.18); }
+.home-resume-card {
+  margin-top: 20px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  border: 1px solid;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+.home-resume-btn {
+  background: transparent;
+  border: 0;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  letter-spacing: 0.01em;
+  transition: opacity 150ms ease;
+}
+.home-resume-btn:hover { opacity: 0.75; }
+.home-history-link {
+  margin: 14px auto 0;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  padding: 6px 10px;
+}
+.home-history-link:hover { opacity: 1 !important; }
+@media (prefers-reduced-motion: reduce) {
+  .home-line1, .home-line2, .home-input, .home-ready, .home-resume, .home-history, .home-rise {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
 `}</style>
       <div style={{
         flex: 1,
         display: "flex",
         flexDirection: "column",
-        padding: `16px ${SCREEN_H_PAD}px 40px`,
+        padding: isHome ? 0 : `16px ${SCREEN_H_PAD}px 40px`,
         width: "100%",
         maxWidth: "100%",
         boxSizing: "border-box",
