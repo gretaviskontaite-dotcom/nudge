@@ -227,20 +227,24 @@ function useTaskBreakdown(task, energy, timeAvailable, granularity) {
     setSteps([]);
     setStepsTask(null);
 
+    let cancelled = false;
     fetchTaskSteps(task, energy, timeAvailable, granularity)
       .then(result => {
+        if (cancelled) return;
         cache.current[key] = result;
         setSteps(result);
         setStepsTask(task);
         setLoading(false);
       })
       .catch(err => {
+        if (cancelled) return;
         console.error("AI step generation failed:", err);
         setError(err.message);
         setSteps(FALLBACK_STEPS);
         setStepsTask(task);
         setLoading(false);
       });
+    return () => { cancelled = true; };
   }, [task, energy, timeAvailable, granularity]);
 
   return { steps, loading, error, stepsTask };
@@ -1594,6 +1598,7 @@ function GatherBloomCircle({ sessionId, stepText, loading, phase, onPhaseChange,
           p.vx *= 0.985;
           p.vy *= 0.992;
           p.life -= p.decay;
+          if (p.life <= 0) continue;
           const c = p.mint ? th.mint : th.purple;
           ctx.beginPath();
           ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
@@ -1804,7 +1809,7 @@ function InProgressScreen({ gatherPhase, onGatherPhaseChange, onDone, onPause, o
             }}>
               Take your time. No rush.
             </div>
-            <div style={{ ...T.hint }}>Focus on just this one thing.</div>
+            <div style={{ ...T.hint }}>Press and hold the circle to finish.</div>
           </div>
           <div style={{
             position: "absolute",
@@ -2374,7 +2379,586 @@ function doneShellBackground(isDark) {
     : "radial-gradient(ellipse at 50% 20%, #E8FFF4 0%, #F0EEF5 60%)";
 }
 
-function DoneScreen({ next, onMore, isLast }) {
+function sessionCompleteShellBackground() {
+  return "radial-gradient(ellipse at 50% 18%, #1A2D24 0%, #141022 45%, #0F0D1E 100%)";
+}
+
+const SESSION_COMPLETE_PURPLE = [124, 111, 205];
+const SESSION_COMPLETE_MINT = [111, 208, 172];
+const SESSION_COMPLETE_HALO_R = GATHER_CIRCLE_R + 52;
+const SESSION_COMPLETE_EYEBROW = "#9D93D8";
+const SESSION_COMPLETE_HEADLINE = "#EDEAE4";
+const SESSION_COMPLETE_TIMESTAMP = "#6FD0AC";
+const SESSION_COMPLETE_CLOSE_BORDER = "#2F2C42";
+const SESSION_COMPLETE_CLOSE_COLOR = "#B4ACDB";
+
+const lineFor = (n) => {
+  if (n <= 1) return "You showed up.";
+  if (n === 2) return "You showed up. Twice.";
+  if (n <= 5) return "You kept showing up.";
+  return "Quietly remarkable.";
+};
+
+function sessionCompleteLabel(text) {
+  if (!text) return "";
+  return text.length <= 30 ? text : `${text.slice(0, 29)}…`;
+}
+
+function sessionCompleteCaptionStyle(text) {
+  const len = (text || "").length;
+  const fontSize =
+    len <= 30 ? 19 :
+    len <= 55 ? 17 :
+    len <= 85 ? 15 :
+    len <= 120 ? 13.5 : 12;
+  return { fontSize, lineHeight: 1.4 };
+}
+
+function SessionCompleteScreen({ stepCount, sessionSteps, fallbackSteps, onClose }) {
+  const canvasRef = useRef(null);
+  const captionOverlayRef = useRef(null);
+  const stepCountRef = useRef(stepCount);
+  const sessionStepsRef = useRef(sessionSteps);
+  const fallbackStepsRef = useRef(fallbackSteps);
+  stepCountRef.current = stepCount;
+  sessionStepsRef.current = sessionSteps;
+  fallbackStepsRef.current = fallbackSteps;
+
+  const startTime = useRef(performance.now());
+  const reduceMotion = useRef(false);
+  const schedule = useRef(null);
+  const [phaseTail, setPhaseTail] = useState(false);
+  const [bgOpacity, setBgOpacity] = useState(0);
+  const [contentOpacity, setContentOpacity] = useState(0);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+
+  useEffect(() => {
+    const reduced = typeof window !== "undefined"
+      && window.matchMedia
+      && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    reduceMotion.current = reduced;
+    setPrefersReducedMotion(reduced);
+    if (reduced) {
+      setBgOpacity(1);
+      setContentOpacity(1);
+      return;
+    }
+    const bgFrame = requestAnimationFrame(() => {
+      requestAnimationFrame(() => setBgOpacity(1));
+    });
+    const contentTimer = setTimeout(() => setContentOpacity(1), 320);
+    return () => {
+      cancelAnimationFrame(bgFrame);
+      clearTimeout(contentTimer);
+    };
+  }, []);
+
+  useEffect(() => {
+    startTime.current = performance.now();
+    setPhaseTail(false);
+
+    const labels = sessionSteps.length
+      ? sessionSteps.slice(0, stepCount)
+      : fallbackSteps.slice(-stepCount);
+
+    const events = [];
+    const fillTargets = [{ t: 0, value: 0 }];
+    let t = 1.4;
+    let tailAt = t;
+
+    if (stepCount <= 1) {
+      fillTargets.push({ t: 1.1, value: 1 });
+      tailAt = 1.4;
+      events.push({ kind: "tail", t: tailAt });
+    } else {
+      for (let i = 0; i < stepCount; i++) {
+        events.push({ kind: "stepIn", t, idx: i });
+        fillTargets.push({ t: t + 1.0, value: fillTargets[fillTargets.length - 1].value });
+        fillTargets.push({ t: t + 1.8, value: (i + 1) / stepCount });
+        t += 2.3;
+      }
+      tailAt = t;
+      events.push({ kind: "tail", t });
+    }
+
+    schedule.current = { events, fillTargets, tailAt, labels };
+
+    if (reduceMotion.current) {
+      setPhaseTail(true);
+    }
+  }, [stepCount, sessionSteps, fallbackSteps]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const DPR = Math.min(window.devicePixelRatio || 1, 2);
+    const W = GATHER_CANVAS_W;
+    const H = GATHER_CANVAS_H;
+    canvas.width = W * DPR;
+    canvas.height = H * DPR;
+    canvas.style.width = "100%";
+    canvas.style.height = "100%";
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+    let raf;
+    const cx = GATHER_CIRCLE_CX;
+    const cy = GATHER_CIRCLE_CY;
+    const R = GATHER_CIRCLE_R;
+    const firedEvents = new Set();
+    let displayedLevel = 0;
+    const ripples = [];
+    let nextRippleAt = Infinity;
+    const RIPPLE_LIFE = 1.4;
+
+    const waveY = (x, surface, amp, t, dir, speed) =>
+      surface +
+      Math.sin((x / 34) * dir + t * speed) * amp +
+      Math.sin((x / 13) * dir - t * speed * 1.4) * amp * 0.35;
+
+    const lerp = (a, b, k) => a + (b - a) * k;
+    const mixCol = (c1, c2, k) => c1.map((v, i) => Math.round(lerp(v, c2[i], k)));
+
+    const sampleLevel = (time, keyframes) => {
+      if (!keyframes || keyframes.length === 0) return 0;
+      if (time <= keyframes[0].t) return keyframes[0].value;
+      for (let i = 1; i < keyframes.length; i++) {
+        if (time <= keyframes[i].t) {
+          const a = keyframes[i - 1];
+          const b = keyframes[i];
+          const k = (time - a.t) / Math.max(0.0001, b.t - a.t);
+          const ease = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+          return lerp(a.value, b.value, ease);
+        }
+      }
+      return keyframes[keyframes.length - 1].value;
+    };
+
+    const resolveLabels = () => {
+      if (schedule.current?.labels?.length) return schedule.current.labels;
+      const steps = sessionStepsRef.current;
+      if (steps.length) return steps.slice(0, stepCountRef.current);
+      return fallbackStepsRef.current.slice(-stepCountRef.current);
+    };
+
+    const updateCaptionOverlay = (text, alpha, color, vesselAlpha) => {
+      const el = captionOverlayRef.current;
+      if (!el) return;
+      if (!text || alpha <= 0.01 || vesselAlpha <= 0) {
+        el.style.opacity = "0";
+        el.style.visibility = "hidden";
+        return;
+      }
+      // TODO: replace with past-tense completion form
+      el.textContent = text;
+      const { fontSize, lineHeight } = sessionCompleteCaptionStyle(text);
+      el.style.fontSize = `${fontSize}px`;
+      el.style.lineHeight = String(lineHeight);
+      el.style.opacity = String(alpha * vesselAlpha);
+      el.style.visibility = "visible";
+      if (color) {
+        el.style.color = `rgb(${color[0]}, ${color[1]}, ${color[2]})`;
+      }
+    };
+
+    const draw = (now) => {
+      const time = (now - startTime.current) / 1000;
+      ctx.clearRect(0, 0, W, H);
+
+      if (schedule.current) {
+        for (const e of schedule.current.events) {
+          const key = `${e.kind}-${e.idx ?? "x"}-${e.t}`;
+          if (!firedEvents.has(key) && time >= e.t) {
+            firedEvents.add(key);
+            if (e.kind === "tail") setPhaseTail(true);
+          }
+        }
+      }
+
+      let activeCaptionIdx = -1;
+      let captionAlpha = 0;
+      let captionStepColor = null;
+      const labels = resolveLabels();
+
+      if (stepCountRef.current <= 1 && labels[0]) {
+        const holdStart = 0.4;
+        const holdEnd = schedule.current?.tailAt ?? 1.4;
+        const localT = time - holdStart;
+        if (localT >= 0 && time < holdEnd) {
+          activeCaptionIdx = 0;
+          const inA = Math.min(1, Math.max(0, localT / 0.4));
+          const outA = Math.min(1, Math.max(0, (holdEnd - time) / 0.4));
+          captionAlpha = Math.min(inA, outA);
+          captionStepColor = mixCol(SESSION_COMPLETE_PURPLE, SESSION_COMPLETE_MINT, 1);
+        }
+      } else if (schedule.current) {
+        for (const e of schedule.current.events) {
+          if (e.kind !== "stepIn") continue;
+          const localT = time - e.t;
+          if (localT < 0 || localT > 2.3) continue;
+          const inA = Math.min(1, Math.max(0, localT / 0.4));
+          const outA = Math.min(1, Math.max(0, (2.3 - localT) / 0.4));
+          const a = Math.min(inA, outA);
+          if (a > captionAlpha) {
+            captionAlpha = a;
+            activeCaptionIdx = e.idx;
+            const targetLevel = (e.idx + 1) / stepCountRef.current;
+            captionStepColor = mixCol(SESSION_COMPLETE_PURPLE, SESSION_COMPLETE_MINT, Math.min(1, targetLevel * 1.1));
+          }
+        }
+      }
+
+      const captionLabel = activeCaptionIdx >= 0 ? labels[activeCaptionIdx] : "";
+
+      const vesselK = reduceMotion.current
+        ? 1
+        : Math.min(1, Math.max(0, (time - 0.2) / 0.9));
+      const vesselEase = 1 - Math.pow(1 - vesselK, 3);
+      const vesselScale = 0.92 + 0.08 * vesselEase;
+      const vesselAlpha = vesselEase;
+
+      const targetLevel = reduceMotion.current
+        ? 1
+        : sampleLevel(time, schedule.current?.fillTargets);
+      displayedLevel = lerp(displayedLevel, targetLevel, 0.12);
+      const level = displayedLevel;
+
+      const haloT = time * 0.15;
+      const haloCx = cx + Math.sin(haloT) * 18;
+      const haloCy = cy + Math.cos(haloT * 0.7) * 12;
+      const halo = ctx.createRadialGradient(
+        haloCx,
+        haloCy,
+        0,
+        cx,
+        cy,
+        SESSION_COMPLETE_HALO_R
+      );
+      const haloColor = mixCol(SESSION_COMPLETE_PURPLE, SESSION_COMPLETE_MINT, level);
+      const haloCenterAlpha = Math.min(0.18, 0.10 + level * 0.08);
+      halo.addColorStop(0, `rgba(${haloColor[0]},${haloColor[1]},${haloColor[2]},${haloCenterAlpha})`);
+      halo.addColorStop(0.35, `rgba(${haloColor[0]},${haloColor[1]},${haloColor[2]},${haloCenterAlpha * 0.45})`);
+      halo.addColorStop(0.65, `rgba(${haloColor[0]},${haloColor[1]},${haloColor[2]},${haloCenterAlpha * 0.12})`);
+      halo.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = halo;
+      ctx.fillRect(0, 0, W, H);
+
+      if (vesselAlpha > 0) {
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.scale(vesselScale, vesselScale);
+        ctx.globalAlpha = vesselAlpha;
+
+        const rimCol = mixCol(SESSION_COMPLETE_PURPLE, SESSION_COMPLETE_MINT, Math.min(1, level + 0.2));
+
+        ctx.beginPath();
+        ctx.arc(0, 0, R, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(${rimCol[0]},${rimCol[1]},${rimCol[2]},${0.4 + level * 0.45})`;
+        ctx.lineWidth = 1.8 + level * 0.6;
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(0, 0, R - 1, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${SESSION_COMPLETE_PURPLE[0]},${SESSION_COMPLETE_PURPLE[1]},${SESSION_COMPLETE_PURPLE[2]},${0.05 + (1 - level) * 0.04})`;
+        ctx.fill();
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(0, 0, R - 1, 0, Math.PI * 2);
+        ctx.clip();
+
+        const waterCol = mixCol(SESSION_COMPLETE_PURPLE, SESSION_COMPLETE_MINT, Math.min(1, level * 1.2));
+        const baseAmp = 4.5;
+        const tailAt = schedule.current?.tailAt ?? Infinity;
+        const atRest = level >= 0.98 && time >= tailAt;
+        if (atRest && nextRippleAt === Infinity) {
+          nextRippleAt = time + 5 + Math.random() * 2;
+        }
+        const fillCalm = !atRest && level >= 0.99
+          ? Math.max(0.15, 1 - (time - tailAt))
+          : 1;
+        const waveAmp = atRest
+          ? 1.5
+          : baseAmp * (1 - level * 0.4) * fillCalm;
+        const speedMul = atRest ? 0.4 : 1;
+        const surface = level <= 0
+          ? R + 4
+          : -R - waveAmp - 2 + (1 - level) * (R * 2 + waveAmp * 2 + 8);
+
+        const lightMint = [
+          Math.min(255, waterCol[0] + 22),
+          Math.min(255, waterCol[1] + 28),
+          Math.min(255, waterCol[2] + 20),
+        ];
+        const deepMint = [
+          Math.max(0, waterCol[0] - 18),
+          Math.max(0, waterCol[1] - 32),
+          Math.max(0, waterCol[2] - 16),
+        ];
+        const depthGrad = ctx.createLinearGradient(0, surface, 0, R);
+        depthGrad.addColorStop(0, `rgba(${lightMint[0]},${lightMint[1]},${lightMint[2]},${0.22 * level})`);
+        depthGrad.addColorStop(1, `rgba(${deepMint[0]},${deepMint[1]},${deepMint[2]},${0.28 * level})`);
+
+        ctx.beginPath();
+        ctx.moveTo(-R, R + 4);
+        for (let x = -R; x <= R; x += 4) {
+          ctx.lineTo(x, waveY(x, surface, waveAmp, time, 1, 2.4 * speedMul));
+        }
+        ctx.lineTo(R, R + 4);
+        ctx.closePath();
+        ctx.fillStyle = depthGrad;
+        ctx.fill();
+
+        for (let layer = 0; layer < 2; layer++) {
+          const dir = layer === 0 ? 1 : -1;
+          const speed = (layer === 0 ? 2.4 : 1.8) * speedMul;
+          ctx.beginPath();
+          ctx.moveTo(-R, R + 4);
+          for (let x = -R; x <= R; x += 4) {
+            ctx.lineTo(x, waveY(x, surface, waveAmp, time, dir, speed));
+          }
+          ctx.lineTo(R, R + 4);
+          ctx.closePath();
+          const a = layer === 0 ? 0.32 : 0.18;
+          ctx.fillStyle = `rgba(${waterCol[0]},${waterCol[1]},${waterCol[2]},${a + level * 0.1})`;
+          ctx.fill();
+        }
+
+        if (level > 0.02) {
+          ctx.beginPath();
+          for (let x = -R; x <= R; x += 4) {
+            const wy = waveY(x, surface, waveAmp, time, 1, 2.4 * speedMul);
+            x === -R ? ctx.moveTo(x, wy) : ctx.lineTo(x, wy);
+          }
+          const meniscusA = atRest ? 0.18 : 0.6 + level * 0.3;
+          ctx.strokeStyle = `rgba(${waterCol[0]},${waterCol[1]},${waterCol[2]},${meniscusA})`;
+          ctx.lineWidth = atRest ? 1 : 1.8;
+          ctx.stroke();
+        }
+
+        if (atRest && !reduceMotion.current && level > 0.5) {
+          if (ripples.length === 0 && time >= nextRippleAt) {
+            const rx = (Math.random() * 2 - 1) * R * 0.8;
+            ripples.push({
+              x: rx,
+              y: waveY(rx, surface, waveAmp, time, 1, 2.4 * speedMul),
+              born: time,
+            });
+          }
+          const brightMint = [
+            Math.min(255, waterCol[0] + 18),
+            Math.min(255, waterCol[1] + 30),
+            Math.min(255, waterCol[2] + 22),
+          ];
+          for (let i = ripples.length - 1; i >= 0; i--) {
+            const rip = ripples[i];
+            const age = time - rip.born;
+            const k = age / RIPPLE_LIFE;
+            if (k >= 1) {
+              ripples.splice(i, 1);
+              nextRippleAt = time + 5 + Math.random() * 2;
+              continue;
+            }
+            const radius = 2 + 28 * k;
+            const alpha = 0.3 * (1 - k);
+            ctx.beginPath();
+            ctx.arc(rip.x, rip.y, radius, 0, Math.PI * 2);
+            ctx.strokeStyle = `rgba(${brightMint[0]},${brightMint[1]},${brightMint[2]},${alpha})`;
+            ctx.lineWidth = 1;
+            ctx.stroke();
+          }
+        }
+
+        ctx.restore();
+        ctx.restore();
+      }
+
+      updateCaptionOverlay(captionLabel, captionAlpha, captionStepColor, vesselAlpha);
+
+      raf = requestAnimationFrame(draw);
+    };
+
+    raf = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(raf);
+  }, [stepCount, sessionSteps, fallbackSteps]);
+
+  const eyebrowColor = SESSION_COMPLETE_EYEBROW;
+  const headlineColor = SESSION_COMPLETE_HEADLINE;
+  const timestampColor = SESSION_COMPLETE_TIMESTAMP;
+  const closeBorder = SESSION_COMPLETE_CLOSE_BORDER;
+  const closeColor = SESSION_COMPLETE_CLOSE_COLOR;
+
+  return (
+    <>
+      <div
+        aria-hidden
+        style={{
+          position: "fixed",
+          inset: 0,
+          background: sessionCompleteShellBackground(),
+          opacity: bgOpacity,
+          transition: prefersReducedMotion
+            ? "none"
+            : "opacity 900ms cubic-bezier(0.4, 0, 0.2, 1)",
+          pointerEvents: "none",
+          zIndex: 0,
+        }}
+      />
+      <style>{`
+@keyframes sessionCompleteRise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .session-complete-rise { animation: none !important; opacity: 1 !important; transform: none !important; }
+}
+`}</style>
+      <div style={{
+        position: "relative",
+        zIndex: 1,
+        flex: 1,
+        display: "flex",
+        flexDirection: "column",
+        minHeight: 0,
+        width: "100%",
+        opacity: contentOpacity,
+        transition: prefersReducedMotion
+          ? "none"
+          : "opacity 700ms cubic-bezier(0.4, 0, 0.2, 1)",
+      }}>
+        <div
+          className="session-complete-rise"
+          style={{
+            fontSize: 12,
+            fontWeight: 700,
+            letterSpacing: "0.14em",
+            textTransform: "uppercase",
+            color: eyebrowColor,
+            opacity: 0,
+            animation: "sessionCompleteRise 700ms 100ms cubic-bezier(.3,.9,.4,1) forwards",
+          }}
+        >
+          Session complete
+        </div>
+
+        <div style={{ flex: 1, minHeight: 0 }} />
+        <div style={{ width: "100%", flexShrink: 0, display: "flex", justifyContent: "center" }}>
+          <div style={{
+            position: "relative",
+            width: "100%",
+            maxWidth: GATHER_CANVAS_W,
+            aspectRatio: `${GATHER_CANVAS_W} / ${GATHER_CANVAS_H}`,
+          }}>
+            <canvas
+              ref={canvasRef}
+              style={{ display: "block", width: "100%", height: "100%", background: "transparent" }}
+            />
+            <div
+              ref={captionOverlayRef}
+              style={{
+                position: "absolute",
+                left: "50%",
+                top: `${(GATHER_CIRCLE_CY / GATHER_CANVAS_H) * 100}%`,
+                transform: "translate(-50%, -50%)",
+                width: GATHER_TEXT_WIDTH,
+                maxHeight: GATHER_TEXT_MAX_H,
+                overflow: "hidden",
+                zIndex: 2,
+                margin: 0,
+                fontFamily: "'DM Serif Display', serif",
+                fontSize: 19,
+                lineHeight: 1.4,
+                fontWeight: 400,
+                textAlign: "center",
+                letterSpacing: "-0.005em",
+                opacity: 0,
+                visibility: "hidden",
+                pointerEvents: "none",
+                color: SESSION_COMPLETE_HEADLINE,
+                textShadow: "0 1px 14px rgba(15, 13, 30, 0.85), 0 0 24px rgba(15, 13, 30, 0.5)",
+                overflowWrap: "break-word",
+              }}
+            />
+          </div>
+        </div>
+
+        <div style={{
+          marginTop: 8,
+          minHeight: 160,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          textAlign: "center",
+          flexShrink: 0,
+        }}>
+          {phaseTail && (
+            <>
+              <h1
+                className="session-complete-rise"
+                style={{
+                  margin: "28px 0 0",
+                  fontFamily: "'DM Serif Display', serif",
+                  fontSize: 40,
+                  lineHeight: 1.1,
+                  letterSpacing: "-0.01em",
+                  color: headlineColor,
+                  fontWeight: 400,
+                  opacity: 0,
+                  animation: "sessionCompleteRise 700ms 200ms cubic-bezier(.3,.9,.4,1) forwards",
+                }}
+              >
+                {lineFor(stepCount)}
+              </h1>
+              <p
+                className="session-complete-rise"
+                style={{
+                  margin: "14px 0 0",
+                  fontSize: 13.5,
+                  fontWeight: 600,
+                  color: timestampColor,
+                  letterSpacing: "0.04em",
+                  opacity: 0,
+                  animation: "sessionCompleteRise 700ms 700ms cubic-bezier(.3,.9,.4,1) forwards",
+                }}
+              >
+                Today · {stepCount} step{stepCount === 1 ? "" : "s"}
+              </p>
+            </>
+          )}
+        </div>
+
+        <div style={{ flex: 1, minHeight: 0 }} />
+
+        {phaseTail && (
+          <button
+            type="button"
+            className="session-complete-rise"
+            onClick={onClose}
+            style={{
+              marginTop: "auto",
+              width: "100%",
+              background: "transparent",
+              border: `1.5px solid ${closeBorder}`,
+              borderRadius: 999,
+              padding: "14px 16px",
+              color: closeColor,
+              fontFamily: "Inter",
+              fontSize: 15.5,
+              fontWeight: 600,
+              cursor: "pointer",
+              opacity: 0,
+              animation: "sessionCompleteRise 700ms 1200ms cubic-bezier(.3,.9,.4,1) forwards",
+            }}
+          >
+            Close
+          </button>
+        )}
+      </div>
+    </>
+  );
+}
+
+function DoneScreen({ next, onMore, onDoneForNow, isLast }) {
   const isDark = useContext(IsDarkContext);
   const [flashOpacity, setFlashOpacity] = useState(0);
 
@@ -2423,8 +3007,8 @@ function DoneScreen({ next, onMore, isLast }) {
         )}
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <BtnPrimary onClick={isLast ? next : onMore}>{isLast ? "See what's next" : "One more thing"}</BtnPrimary>
-        <BtnSecondary onClick={next}>I'm done now</BtnSecondary>
+        <BtnPrimary onClick={onMore}>{isLast ? "See what's next" : "One more thing"}</BtnPrimary>
+        <BtnSecondary onClick={onDoneForNow ?? next}>I'm done now</BtnSecondary>
       </div>
       </div>
     </>
@@ -3050,7 +3634,13 @@ function resolveInitialScreen(tasks) {
 
 function migrateInProgressSession(tasks, stepIndex, savedScreen) {
   const existing = loadInProgressSessionFromStorage();
-  if (existing) return existing;
+  if (existing) {
+    if (tasks.length && existing.taskId !== tasks[0]) {
+      clearInProgressSessionStorage();
+      return null;
+    }
+    return existing;
+  }
   if (!tasks.length) return null;
   if (savedScreen !== "inprogress" && savedScreen !== "suggestion") return null;
   const session = {
@@ -3133,6 +3723,8 @@ export default function NudgeApp() {
   const [deferredNote, setDeferredNote] = useState("");
   const [completedHistory, setCompletedHistory] = useState([]);
   const [inProgressSession, setInProgressSession] = useState(null);
+  const [sessionStepCount, setSessionStepCount] = useState(0);
+  const [sessionSteps, setSessionSteps] = useState([]);
 
   useEffect(() => {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
@@ -3228,51 +3820,117 @@ export default function NudgeApp() {
   const prevScreen = useRef(null);
   const lastScreen = useRef(null);
   const activeCompletionTask = useRef("");
+  const fullyCompletedTaskRef = useRef("");
+  const taskAllStepsCompleteRef = useRef(false);
   const handleDoneGuard = useRef("");
+  const pinnedInProgressStep = useRef(null);
+  const prevPrimaryTask = useRef(null);
+  const resumeStepIndexRef = useRef(null);
   const go = s => { prevScreen.current = screen; setScreen(s); };
   const goHome = (reason = "list") => { setHomeReason(reason); go("home"); };
   const task = tasks[0] || "Work on portfolio";
   const { steps, loading: stepsLoading, stepsTask } = useTaskBreakdown(task, defaultEnergy, defaultTime, granularity);
   const { recordSession, getInsights } = usePatternLearning();
-  const currentStep = steps[stepIndex] || steps[0];
+  const stepsMatchTask = stepsTask === task;
+  const taskSteps = stepsMatchTask ? steps : [];
+  const stepsBusy = stepsLoading || !stepsMatchTask;
+  const currentStep = taskSteps.length ? (taskSteps[stepIndex] || taskSteps[0]) : null;
 
   useEffect(() => {
+    if (!hydrated) return;
+    if (prevPrimaryTask.current !== null && prevPrimaryTask.current !== task) {
+      if (resumeStepIndexRef.current !== null) {
+        setStepIndex(resumeStepIndexRef.current);
+        resumeStepIndexRef.current = null;
+      } else {
+        setStepIndex(0);
+      }
+      setStepLinks({});
+    }
+    prevPrimaryTask.current = task;
+  }, [task, hydrated]);
+
+  useEffect(() => {
+    if (!stepsMatchTask || !taskSteps.length) return;
+    setStepIndex(i => (i >= taskSteps.length ? 0 : i));
+  }, [stepsMatchTask, taskSteps.length]);
+
+  useEffect(() => {
+    const workTask = tasks[0] || "Work on portfolio";
+    if (screen === "suggestion" && lastScreen.current !== "suggestion") {
+      activeCompletionTask.current = workTask;
+    }
     if (screen === "inprogress" && lastScreen.current !== "inprogress") {
-      activeCompletionTask.current = tasks[0] || "Work on portfolio";
+      activeCompletionTask.current = workTask;
       handleDoneGuard.current = "";
     }
+    if (screen !== "inprogress") pinnedInProgressStep.current = null;
     lastScreen.current = screen;
   }, [screen, tasks]);
+
+  const inProgressStep = screen === "inprogress" && pinnedInProgressStep.current
+    ? pinnedInProgressStep.current
+    : currentStep;
+
+  const enterInProgress = () => {
+    if (stepsBusy || !currentStep?.text) return;
+    pinnedInProgressStep.current = currentStep;
+    activeCompletionTask.current = task;
+    go("inprogress");
+  };
 
   useEffect(() => {
     if (!hydrated || screen !== "inprogress") return;
     const workTask = activeCompletionTask.current;
-    if (!workTask || workTask !== task || stepsTask !== workTask) return;
-    if (stepsLoading || !currentStep?.text) return;
+    const stepToPersist = inProgressStep || currentStep;
+    if (!workTask || workTask !== task) return;
+    if (!stepToPersist?.text) return;
+    if (!pinnedInProgressStep.current && (stepsBusy || !stepsMatchTask)) return;
     persistInProgressSession({
       taskId: workTask,
       taskName: workTask,
       stepIndex,
-      step: currentStep,
+      step: stepToPersist,
     });
-  }, [hydrated, screen, stepIndex, currentStep, task, stepsTask, stepsLoading, persistInProgressSession]);
+  }, [hydrated, screen, stepIndex, inProgressStep, currentStep, task, stepsMatchTask, stepsBusy, persistInProgressSession]);
 
   const continueInProgressSession = () => {
     if (!inProgressSession) return;
     const name = inProgressSession.taskName || inProgressSession.taskId;
     const idx = inProgressSession.stepIndex;
+    resumeStepIndexRef.current = idx;
     setTasks([name, ...tasks.filter(t => t !== name)]);
-    setStepIndex(idx);
     activeCompletionTask.current = name;
     handleDoneGuard.current = "";
+    if (inProgressSession.step?.text) pinnedInProgressStep.current = inProgressSession.step;
     go("inprogress");
+  };
+
+  const removeTaskByName = (name) => {
+    if (!name) return;
+    setTasks(t => (t.includes(name) ? t.filter(x => x !== name) : t));
+  };
+
+  const advanceTaskAfterSession = ({ fullyComplete = false, completedTask = null } = {}) => {
+    const name = completedTask || fullyCompletedTaskRef.current || activeCompletionTask.current || tasks[0];
+    if (fullyComplete) {
+      removeTaskByName(name);
+    } else if (tasks.length > 1) {
+      setTasks(t => [...t.slice(1), t[0]]);
+    }
+    setStepIndex(0);
+    setIsLastStep(false);
+    setCompletedSteps([]);
+    fullyCompletedTaskRef.current = "";
+    taskAllStepsCompleteRef.current = false;
   };
 
   const startFreshTask = (picked) => {
     clearInProgressSession();
     activeCompletionTask.current = picked;
+    const wasPrimary = picked === tasks[0];
     setTasks([picked, ...tasks.filter(x => x !== picked)]);
-    setStepIndex(0);
+    if (!wasPrimary) setStepIndex(0);
     go("suggestion");
   };
 
@@ -3293,26 +3951,30 @@ export default function NudgeApp() {
 
   const [isLastStep, setIsLastStep] = useState(false);
   const [gatherPhase, setGatherPhase] = useState("loading");
-  const resourceLink = stepLinks[stepIndex] || currentStep?.link || "";
+  const resourceLink = stepLinks[stepIndex] || inProgressStep?.link || currentStep?.link || "";
 
   useEffect(() => {
     if (screen !== "inprogress") setGatherPhase("loading");
   }, [screen]);
 
   const handleDone = () => {
-    if (!currentStep?.text) return;
+    const doneStep = inProgressStep || currentStep;
+    const stepLabel = (doneStep?.text || "").trim();
+    if (!stepLabel) return;
     const taskId = activeCompletionTask.current || tasks[0] || "Work on portfolio";
-    const guardKey = `${taskId}::${stepIndex}::${currentStep.text}`;
+    const guardKey = `${taskId}::${stepIndex}::${stepLabel}`;
     if (handleDoneGuard.current === guardKey) return;
     handleDoneGuard.current = guardKey;
     clearInProgressSession();
 
-    setCompletedSteps(p => (p.includes(currentStep.text) ? p : [...p, currentStep.text]));
+    setCompletedSteps(p => (p.includes(stepLabel) ? p : [...p, stepLabel]));
+    setSessionStepCount(p => p + 1);
+    setSessionSteps(p => [...p, stepLabel]);
     setCompletedHistory(h => {
       const entry = {
         taskId,
         task: taskId,
-        step: currentStep.text,
+        step: stepLabel,
         stepIndex,
         completedAt: new Date().toISOString(),
       };
@@ -3325,12 +3987,43 @@ export default function NudgeApp() {
       if (isDupe) return h;
       return [entry, ...h];
     });
-    recordSession(taskId, defaultEnergy, stepIndex, steps.length, defaultTime);
+    recordSession(taskId, defaultEnergy, stepIndex, taskSteps.length, defaultTime);
     const next = stepIndex + 1;
     const c = sessionCount + 1;
     setSessionCount(c);
-    if (next >= steps.length) { setIsLastStep(true); setStepIndex(0); go("momentum"); }
-    else { setIsLastStep(next >= steps.length - 1); setStepIndex(next); if (c === 2) go("pattern"); else go("done"); }
+    if (taskSteps.length > 0 && next >= taskSteps.length) {
+      setIsLastStep(true);
+      setStepIndex(0);
+      fullyCompletedTaskRef.current = taskId;
+      taskAllStepsCompleteRef.current = true;
+      removeTaskByName(taskId);
+      go("momentum");
+    } else { setIsLastStep(next >= taskSteps.length - 1); setStepIndex(next); if (c === 2) go("pattern"); else go("done"); }
+  };
+
+  const endSessionWithTaskAdvance = ({ fullyComplete = false, resetSessionSteps = false, completedTask = null } = {}) => {
+    clearInProgressSession();
+    const shouldRemove = fullyComplete || taskAllStepsCompleteRef.current;
+    if (shouldRemove || sessionStepCount > 0) {
+      advanceTaskAfterSession({ fullyComplete: shouldRemove, completedTask });
+    }
+    if (resetSessionSteps) {
+      setSessionStepCount(0);
+      setSessionSteps([]);
+    }
+  };
+
+  const finishSessionComplete = () => {
+    endSessionWithTaskAdvance({
+      fullyComplete: taskAllStepsCompleteRef.current,
+      resetSessionSteps: true,
+      completedTask: fullyCompletedTaskRef.current || activeCompletionTask.current,
+    });
+    goHome("done");
+  };
+
+  const openSessionComplete = () => {
+    go("session_complete");
   };
 
   const screens = {
@@ -3338,14 +4031,14 @@ export default function NudgeApp() {
     onboarding: <OnboardingScreen next={() => go("setup")} tasks={tasks} setTasks={setTasks} />,
     setup: <SetupScreen next={() => go("ready")} back={() => go("onboarding")} setDefaultEnergy={setDefaultEnergy} setDefaultTime={setDefaultTime} />,
     ready: <ReadyScreen next={() => go("suggestion")} back={() => go("setup")} setGranularity={setGranularity} />,
-    suggestion: <SuggestionScreen next={() => { if (currentStep) go("inprogress"); }} onTooHard={() => { if (currentStep) go("simplify"); }} onAnother={() => go("allsteps")} onSkip={() => setStepIndex(i => (steps.length ? (i + 1) % steps.length : 0))} onExit={() => goHome("exit")} task={task} stepIndex={stepIndex} steps={steps} energy={defaultEnergy} loading={stepsLoading} deferredNote={deferredNote} onDismissDeferNote={() => setDeferredNote("")} />,
-    allsteps: <AllStepsScreen back={() => go("suggestion")} steps={steps} task={task} stepIndex={stepIndex} onPick={i => { setStepIndex(i); go("suggestion"); }} loading={stepsLoading} stepLinks={stepLinks} onSetStepLink={(i, url) => setStepLinks(p => ({ ...p, [i]: url }))} />,
-    inprogress: <InProgressScreen gatherPhase={gatherPhase} onGatherPhaseChange={setGatherPhase} step={currentStep} resourceLink={resourceLink} stepsLoading={stepsLoading} onDone={handleDone} onPause={() => { setPausedStep(currentStep); go("pause"); }} onTooMuch={() => go("simplify")} onDefer={(note) => { setDeferredNote(note); go("suggestion"); }} />,
-    simplify: <SimplifyScreen next={() => go("inprogress")} onStillTooMuch={() => go("suggestion")} step={currentStep} />,
+    suggestion: <SuggestionScreen next={enterInProgress} onTooHard={() => { if (!stepsBusy && currentStep) go("simplify"); }} onAnother={() => go("allsteps")} onSkip={() => setStepIndex(i => (taskSteps.length ? (i + 1) % taskSteps.length : 0))} onExit={() => goHome("exit")} task={task} stepIndex={stepIndex} steps={taskSteps} energy={defaultEnergy} loading={stepsBusy} deferredNote={deferredNote} onDismissDeferNote={() => setDeferredNote("")} />,
+    allsteps: <AllStepsScreen back={() => go("suggestion")} steps={taskSteps} task={task} stepIndex={stepIndex} onPick={i => { setStepIndex(i); go("suggestion"); }} loading={stepsBusy} stepLinks={stepLinks} onSetStepLink={(i, url) => setStepLinks(p => ({ ...p, [i]: url }))} />,
+    inprogress: <InProgressScreen gatherPhase={gatherPhase} onGatherPhaseChange={setGatherPhase} step={inProgressStep} resourceLink={resourceLink} stepsLoading={stepsBusy && !pinnedInProgressStep.current} onDone={handleDone} onPause={() => { setPausedStep(inProgressStep); go("pause"); }} onTooMuch={() => go("simplify")} onDefer={(note) => { setDeferredNote(note); go("suggestion"); }} />,
+    simplify: <SimplifyScreen next={enterInProgress} onStillTooMuch={() => go("suggestion")} step={currentStep} />,
     pause: <PauseScreen
       onSaveAndPause={(data) => { savePauseState(data); go("return_paused"); }}
       onComeBackLater={(data) => { savePauseState(data); go("return_paused"); }}
-      onResume={() => go("inprogress")}
+      onResume={enterInProgress}
     />,
     home: <HomeScreen
       reason={homeReason}
@@ -3358,9 +4051,15 @@ export default function NudgeApp() {
     />,
     history: <HistoryScreen history={completedHistory} onBack={() => goHome("list")} />,
     paused_confirm: <PausedConfirmScreen next={() => goHome("done")} />,
-    done: <DoneScreen next={() => { clearInProgressSession(); goHome("done"); }} onMore={() => go("suggestion")} isLast={isLastStep} />,
+    done: <DoneScreen onDoneForNow={openSessionComplete} next={() => goHome("done")} onMore={() => go("suggestion")} isLast={isLastStep} />,
+    session_complete: <SessionCompleteScreen
+      stepCount={sessionStepCount}
+      sessionSteps={sessionSteps}
+      fallbackSteps={completedSteps}
+      onClose={finishSessionComplete}
+    />,
     return_paused: <ReturnPausedScreen
-      next={() => go("inprogress")}
+      next={enterInProgress}
       onFresh={() => { clearInProgressSession(); go("switch_task"); }}
       onPickTask={(t) => { clearInProgressSession(); setTasks([t, ...tasks.filter(x => x !== t)]); setStepIndex(0); go("suggestion"); }}
       tasks={tasks}
@@ -3372,21 +4071,37 @@ export default function NudgeApp() {
     switch_task: <SwitchTaskScreen tasks={tasks.length ? tasks : ["Work on portfolio", "Clean kitchen", "Baby sleep schedule"]} onPick={t => { clearInProgressSession(); setTasks([t, ...tasks.filter(x => x !== t)]); setStepIndex(0); go("suggestion"); }} onAdd={t => { clearInProgressSession(); setTasks(p => [t, ...p]); setStepIndex(0); go("suggestion"); }} onBack={() => { const dest = prevScreen.current || "home"; if (dest === "home") setHomeReason("list"); go(dest); }} />,
     return_short: <ReturnShortScreen next={() => go("suggestion")} onExit={() => goHome("list")} />,
     return_long: <ReturnLongScreen next={() => go("switch_task")} />,
-    pattern: <PatternScreen next={() => go("suggestion")} onExit={() => { clearInProgressSession(); goHome("done"); }} completedCount={sessionCount} topEnergy={defaultEnergy} insights={getInsights()} />,
+    pattern: <PatternScreen next={() => go("suggestion")} onExit={() => { endSessionWithTaskAdvance({ fullyComplete: false }); goHome("done"); }} completedCount={sessionCount} topEnergy={defaultEnergy} insights={getInsights()} />,
     momentum: <MomentumScreen
       next={() => go("suggestion")}
-      onExit={() => { clearInProgressSession(); goHome("done"); }}
+      onExit={() => {
+        endSessionWithTaskAdvance({
+          fullyComplete: true,
+          resetSessionSteps: true,
+          completedTask: fullyCompletedTaskRef.current || activeCompletionTask.current,
+        });
+        goHome("done");
+      }}
       completedSteps={completedSteps}
-      task={task}
-      onMarkDone={() => { clearInProgressSession(); setTasks(t => t.slice(1)); goHome("done"); }}
+      task={fullyCompletedTaskRef.current || activeCompletionTask.current || task}
+      onMarkDone={() => {
+        endSessionWithTaskAdvance({
+          fullyComplete: true,
+          resetSessionSteps: true,
+          completedTask: fullyCompletedTaskRef.current || activeCompletionTask.current,
+        });
+        goHome("done");
+      }}
     />,
   };
 
-  const shellBackground = screen === "inprogress"
-    ? (gatherPhase === "complete" ? doneShellBackground(isDark) : inProgressShellBackground(isDark))
-    : screen === "done"
-      ? doneShellBackground(isDark)
-      : (isDark ? "#1A1828" : C.neutral100);
+  const shellBackground = screen === "session_complete"
+    ? doneShellBackground(isDark)
+    : screen === "inprogress"
+      ? (gatherPhase === "complete" ? doneShellBackground(isDark) : inProgressShellBackground(isDark))
+      : screen === "done"
+        ? doneShellBackground(isDark)
+        : (isDark ? "#1A1828" : C.neutral100);
 
   return (
     <IsDarkContext.Provider value={isDark}>
