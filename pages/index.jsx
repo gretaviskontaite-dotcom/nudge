@@ -377,20 +377,20 @@ function Dots({ total = 3, active = 0 }) {
   );
 }
 
-// Primary button — Accent/500, full width, radius 94, h 51
-const BTN_PRIMARY_SHADOW = "0 4px 16px rgba(124,111,205,0.35)";
-const BTN_PRIMARY_SHADOW_PRESSED = "0 2px 8px rgba(124,111,205,0.2)";
-
+// Primary button — palette-aware action color, full width, radius 94, h 51
 function BtnPrimary({ children, onClick, disabled }) {
+  const action = homeActionColor();
+  const shadowRest = `0 4px 16px rgba(${action[0]},${action[1]},${action[2]},0.35)`;
+  const shadowPressed = `0 2px 8px rgba(${action[0]},${action[1]},${action[2]},0.2)`;
   const releasePress = (e) => {
     if (disabled) return;
     e.currentTarget.style.transform = "";
-    e.currentTarget.style.boxShadow = BTN_PRIMARY_SHADOW;
+    e.currentTarget.style.boxShadow = shadowRest;
   };
   const applyPress = (e) => {
     if (disabled) return;
     e.currentTarget.style.transform = "translateY(1px)";
-    e.currentTarget.style.boxShadow = BTN_PRIMARY_SHADOW_PRESSED;
+    e.currentTarget.style.boxShadow = shadowPressed;
   };
   return (
     <button
@@ -402,10 +402,10 @@ function BtnPrimary({ children, onClick, disabled }) {
       onTouchEnd={releasePress}
       style={{
       width: "100%", height: BTN_H, borderRadius: BTN_RADIUS,
-      background: disabled ? C.accent300 : C.accent500,
+      background: disabled ? `rgba(${action[0]},${action[1]},${action[2]},0.4)` : `rgb(${action[0]},${action[1]},${action[2]})`,
       border: "none", cursor: disabled ? "default" : "pointer",
       ...BTN_FONT, color: C.neutral50,
-      boxShadow: disabled ? "none" : BTN_PRIMARY_SHADOW,
+      boxShadow: disabled ? "none" : shadowRest,
       transition: "opacity 0.15s, transform 0.1s ease, box-shadow 0.1s ease",
     }}
       onMouseEnter={e => !disabled && (e.currentTarget.style.opacity = "0.88")}
@@ -1174,6 +1174,82 @@ function getGatherTheme(isDark) {
   return isDark ? GATHER_THEME.dark : GATHER_THEME.light;
 }
 
+// Palette-aware focus-screen colors. Selected by the same time-of-day band
+// logic as the home screen, then locked for the duration of a focus session.
+//   bg          – screen background behind the vessel
+//   disc        – (reference) solid vessel color
+//   domeCenter/domeEdge – inner radial gradient inside the vessel
+//   waterStart/waterEnd – water fill, lerped by hold progress
+//   pulse       – breathing idle halo (action color)
+//   mote        – gather particles / release motes (action color)
+//   bloom       – hold + completion radial brightening / sustained halo
+//   ring        – vessel outline ring (brighter sibling of the disc)
+//   serif       – resting-state text color
+//   scDomeCenter – session-complete vessel inner gradient center (edge = disc)
+//   scWater     – session-complete rising fill (single consistent color)
+//   scInk       – session-complete text color (headline / step / close)
+const FOCUS_PALETTES = {
+  morning: {
+    bg: [110, 145, 135],
+    disc: [55, 90, 80],
+    domeCenter: [78, 113, 103], domeEdge: [55, 90, 80],
+    waterStart: [220, 110, 90], waterEnd: [240, 195, 165],
+    pulse: [220, 110, 90],
+    mote: [220, 110, 90],
+    bloom: [250, 240, 230],
+    ring: [140, 175, 160],
+    vesselText: [250, 245, 235],
+    serif: [42, 36, 56],
+    hint: [245, 240, 230], hintAlpha: 0.75,
+    scDomeCenter: [80, 115, 105], scWater: [240, 195, 165], scInk: [42, 36, 56],
+  },
+  afternoon: {
+    bg: [88, 72, 138],
+    disc: [40, 28, 80],
+    domeCenter: [63, 51, 103], domeEdge: [40, 28, 80],
+    waterStart: [195, 145, 170], waterEnd: [230, 195, 210],
+    pulse: [195, 145, 170],
+    mote: [195, 145, 170],
+    bloom: [248, 245, 248],
+    ring: [180, 160, 230],
+    vesselText: [245, 240, 248],
+    serif: [42, 38, 64],
+    hint: [240, 232, 248], hintAlpha: 0.75,
+    scDomeCenter: [70, 50, 120], scWater: [220, 175, 195], scInk: [245, 240, 248],
+  },
+  evening: {
+    bg: [28, 22, 48],
+    disc: [60, 50, 95],
+    domeCenter: [85, 75, 130], domeEdge: [60, 50, 95],
+    waterStart: [124, 111, 205], waterEnd: [170, 150, 215],
+    pulse: [124, 111, 205],
+    mote: [124, 111, 205],
+    bloom: [95, 191, 155],
+    ring: [150, 140, 220],
+    vesselText: [237, 234, 228],
+    serif: [237, 234, 228],
+    hint: [220, 215, 230], hintAlpha: 0.70,
+    scDomeCenter: [85, 75, 130], scWater: [170, 150, 215], scInk: [237, 234, 228],
+  },
+};
+
+function focusPaletteForHour(h = homeFractionalHour()) {
+  const lerpPal = (a, b, k) => {
+    const out = {};
+    for (const key in a) out[key] = homeLerpCol(a[key], b[key], k);
+    return out;
+  };
+  const M = FOCUS_PALETTES.morning;
+  const A = FOCUS_PALETTES.afternoon;
+  const E = FOCUS_PALETTES.evening;
+  if (h >= 5 && h < 11) return M;
+  if (h >= 11 && h < 13) return lerpPal(M, A, (h - 11) / 2);
+  if (h >= 13 && h < 17) return A;
+  if (h >= 17 && h < 19) return lerpPal(A, E, (h - 17) / 2);
+  if (h >= 19 || h < 3) return E;
+  return lerpPal(E, M, (h - 3) / 2);
+}
+
 function gatherTaskTextStyle(text, theme) {
   const len = (text || "").length;
   const fontSize =
@@ -1199,11 +1275,14 @@ function gatherTaskTextStyle(text, theme) {
   };
 }
 
-function GatherBloomCircle({ sessionId, stepText, loading, phase, onPhaseChange, onComplete, resourceLink }) {
+function GatherBloomCircle({ sessionId, stepText, loading, phase, onPhaseChange, onComplete, resourceLink, focusPalette }) {
   const isDark = useContext(IsDarkContext);
   const theme = getGatherTheme(isDark);
   const themeRef = useRef(theme);
   themeRef.current = theme;
+  const fp = focusPalette || focusPaletteForHour();
+  const fpRef = useRef(fp);
+  fpRef.current = fp;
   const displayText = stepText || "Your step is loading…";
   const [runId, setRunId] = useState(0);
   const canvasRef = useRef(null);
@@ -1262,17 +1341,11 @@ function GatherBloomCircle({ sessionId, stepText, loading, phase, onPhaseChange,
     }
   }, [phase, runId]);
 
-  useEffect(() => {
-    if (phase !== "complete") return;
-    const firedFor = sessionId;
-    const t = setTimeout(() => {
-      if (completeFiredSession.current === firedFor) return;
-      completeFiredSession.current = firedFor;
-      completeFired.current = true;
-      onCompleteRef.current();
-    }, 2200);
-    return () => clearTimeout(t);
-  }, [phase, sessionId]);
+  const fireComplete = () => {
+    if (completeFired.current) return;
+    completeFired.current = true;
+    onCompleteRef.current();
+  };
 
   const spawnGather = () => {
     if (reduceMotion.current) { gatherers.current = []; return; }
@@ -1358,6 +1431,7 @@ function GatherBloomCircle({ sessionId, stepText, loading, phase, onPhaseChange,
               phaseStart.current = performance.now();
               spawnBloom();
               onPhaseChangeRef.current("complete");
+              fireComplete();
             }
           }
         } else {
@@ -1369,7 +1443,7 @@ function GatherBloomCircle({ sessionId, stepText, loading, phase, onPhaseChange,
       colorMix.current = lerp(colorMix.current, ph === "complete" ? 1 : hv * 0.35, 0.05);
       const th = themeRef.current;
       const a = th.a;
-      const [cr, cg, cb] = mixCol(th.purple, th.mint, colorMix.current);
+      const fp = fpRef.current;
 
       ctx.clearRect(0, 0, W, H);
 
@@ -1391,17 +1465,49 @@ function GatherBloomCircle({ sessionId, stepText, loading, phase, onPhaseChange,
       }
 
       const haloGate = ph === "loading" ? circleAlpha.current : 1;
-      const skipOuterHalo = ph === "complete" && th.interior;
-      if (!skipOuterHalo) {
+
+      // Breathing pulse glow ring — idle halo in the palette's action color.
+      {
+        const [pr, pg, pb] = fp.pulse;
+        const peak = (a.haloBase + breathe * a.haloBreathe) * haloGate;
         const haloR = R + 52;
         const halo = ctx.createRadialGradient(cx, cy, R * 0.55, cx, cy, haloR);
-        halo.addColorStop(0, `rgba(${cr},${cg},${cb},${(a.haloBase + breathe * a.haloBreathe + hv * a.haloHold) * haloGate})`);
-        halo.addColorStop(0.55, `rgba(${cr},${cg},${cb},${a.haloMid * haloGate})`);
+        halo.addColorStop(0, `rgba(${pr},${pg},${pb},${peak})`);
+        halo.addColorStop(0.55, `rgba(${pr},${pg},${pb},${a.haloMid * haloGate})`);
         halo.addColorStop(1, "rgba(0,0,0,0)");
         ctx.beginPath();
         ctx.arc(cx, cy, haloR, 0, Math.PI * 2);
         ctx.fillStyle = halo;
         ctx.fill();
+      }
+
+      // Hold bloom + completion bloom — radial brightening in the completion
+      // color, painted BEHIND the vessel via a rect-minus-circle clip so it
+      // never tints the disc, the water, or the inner dome. The completion
+      // wave radiates and fades out by ~1.4s, leaving a soft sustained halo.
+      {
+        const [br, bgc, bb] = fp.bloom;
+        const holdBloom = ph === "focus" ? hv * a.haloHold * 3.0 : 0;
+        const completeWave = ph === "complete" ? Math.max(0, 1 - since / 1.4) : 0;
+        const completeSteady = ph === "complete" ? 0.12 : 0;
+        const peak = (holdBloom + completeWave * 0.5 + completeSteady) * haloGate;
+        if (peak > 0.002) {
+          const bloomR = R + 52 + completeWave * 70;
+          const g = ctx.createRadialGradient(cx, cy, R * 0.6, cx, cy, bloomR);
+          g.addColorStop(0, `rgba(${br},${bgc},${bb},${peak})`);
+          g.addColorStop(0.5, `rgba(${br},${bgc},${bb},${peak * 0.35})`);
+          g.addColorStop(1, "rgba(0,0,0,0)");
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(0, 0, W, H);
+          ctx.arc(cx, cy, R, 0, Math.PI * 2, true);
+          ctx.clip();
+          ctx.beginPath();
+          ctx.arc(cx, cy, bloomR, 0, Math.PI * 2);
+          ctx.fillStyle = g;
+          ctx.fill();
+          ctx.restore();
+        }
       }
 
       if (ph === "loading" && gatherers.current.length) {
@@ -1416,7 +1522,7 @@ function GatherBloomCircle({ sessionId, stepText, loading, phase, onPhaseChange,
           if (k <= 0) {
             ctx.beginPath();
             ctx.arc(g.x, g.y, g.size * 0.7, 0, Math.PI * 2);
-            ctx.fillStyle = `rgba(${th.purple[0]},${th.purple[1]},${th.purple[2]},${a.gatherIdle})`;
+            ctx.fillStyle = `rgba(${fp.mote[0]},${fp.mote[1]},${fp.mote[2]},${a.gatherIdle})`;
             ctx.fill();
             continue;
           }
@@ -1428,11 +1534,11 @@ function GatherBloomCircle({ sessionId, stepText, loading, phase, onPhaseChange,
           const alpha = a.gatherAlphaMin + e * a.gatherAlphaRange;
           ctx.beginPath();
           ctx.arc(x, y, g.size * (0.6 + e * 0.4), 0, Math.PI * 2);
-          ctx.fillStyle = `rgba(${th.purple[0]},${th.purple[1]},${th.purple[2]},${alpha})`;
+          ctx.fillStyle = `rgba(${fp.mote[0]},${fp.mote[1]},${fp.mote[2]},${alpha})`;
           ctx.fill();
           ctx.beginPath();
           ctx.arc(x, y, g.size * 2.4, 0, Math.PI * 2);
-          ctx.fillStyle = `rgba(${th.purple[0]},${th.purple[1]},${th.purple[2]},${alpha * a.gatherGlow})`;
+          ctx.fillStyle = `rgba(${fp.mote[0]},${fp.mote[1]},${fp.mote[2]},${alpha * a.gatherGlow})`;
           ctx.fill();
         }
         const rawTarget = gatherers.current.length ? arrivedCount / gatherers.current.length : 1;
@@ -1458,42 +1564,23 @@ function GatherBloomCircle({ sessionId, stepText, loading, phase, onPhaseChange,
       const ca = circleAlpha.current;
 
       if (ca > 0.02) {
-        if (ph === "complete" && th.interior) {
-          const [ir, ig, ib] = th.interior;
-          const [mr, mg, mb] = th.mint;
-          ctx.beginPath();
-          ctx.arc(cx, cy, R, 0, Math.PI * 2);
-          ctx.fillStyle = `rgba(${ir},${ig},${ib},${0.94 * ca})`;
-          ctx.fill();
-          const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, R);
-          glow.addColorStop(0, `rgba(${mr},${mg},${mb},${a.completeGlowInner * ca})`);
-          glow.addColorStop(0.42, `rgba(${mr},${mg},${mb},${a.completeGlowMid * ca})`);
-          glow.addColorStop(0.72, `rgba(${mr},${mg},${mb},${0.012 * ca})`);
-          glow.addColorStop(1, `rgba(${mr},${mg},${mb},0)`);
-          ctx.beginPath();
-          ctx.arc(cx, cy, R, 0, Math.PI * 2);
-          ctx.fillStyle = glow;
-          ctx.fill();
-          ctx.strokeStyle = `rgba(${mr},${mg},${mb},${a.completeRing * ca})`;
-          ctx.lineWidth = 2.5;
-          ctx.stroke();
-        } else {
-          const fg = ctx.createRadialGradient(cx - R * 0.25, cy - R * 0.3, R * 0.1, cx, cy, R * 1.12);
-          fg.addColorStop(0, `rgba(${cr},${cg},${cb},${(a.fillInner + hv * a.fillHold + (ph === "complete" ? a.fillComplete : 0)) * ca})`);
-          fg.addColorStop(0.7, `rgba(${cr},${cg},${cb},${(a.fillMid + hv * a.fillHoldMid) * ca})`);
-          fg.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
-          ctx.beginPath();
-          ctx.arc(cx, cy, R, 0, Math.PI * 2);
-          ctx.fillStyle = fg;
-          ctx.fill();
-          ctx.strokeStyle = `rgba(${cr},${cg},${cb},${a.strokeCircle * ca})`;
-          ctx.lineWidth = 1.5;
-          ctx.stroke();
-        }
+        // Vessel disc — opaque inner dome gradient (static; does not change with hold).
+        const dome = ctx.createRadialGradient(cx, cy, 0, cx, cy, R);
+        dome.addColorStop(0, `rgba(${fp.domeCenter[0]},${fp.domeCenter[1]},${fp.domeCenter[2]},${ca})`);
+        dome.addColorStop(1, `rgba(${fp.domeEdge[0]},${fp.domeEdge[1]},${fp.domeEdge[2]},${ca})`);
+        ctx.beginPath();
+        ctx.arc(cx, cy, R, 0, Math.PI * 2);
+        ctx.fillStyle = dome;
+        ctx.fill();
+        // Outline ring — brighter sibling of the vessel color.
+        ctx.beginPath();
+        ctx.arc(cx, cy, R, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(${fp.ring[0]},${fp.ring[1]},${fp.ring[2]},${ca})`;
+        ctx.lineWidth = 1;
+        ctx.stroke();
       }
 
-      const tideRgb = (holdMix) =>
-        th.tide ?? mixCol(th.purple, th.mint, holdMix);
+      const tideRgb = (holdMix) => mixCol(fp.waterStart, fp.waterEnd, holdMix);
 
       if (ph === "focus" && hv > 0.005) {
         const waveAmp = 4.5 * (1 - hv * 0.5);
@@ -1555,37 +1642,38 @@ function GatherBloomCircle({ sessionId, stepText, loading, phase, onPhaseChange,
         ctx.stroke();
       }
 
-      if (ph === "complete" && !th.skipCompleteTideFill) {
-        const settle = Math.min(1, since / 1.5);
-        const waveAmp = 4.5 * (1 - settle);
-        const tideCol = tideRgb(Math.min(1, 0.6 + settle * 0.4));
+      // Complete (resting): vessel filled 100% with waterEnd, calm single-sine
+      // surface wave — no bubbles, no crest droplets.
+      if (ph === "complete" && ca > 0.02) {
+        const [wr, wg, wb] = fp.waterEnd;
+        const [gr2, gg2, gb2] = fp.bloom;
         ctx.save();
         ctx.beginPath();
         ctx.arc(cx, cy, R - 1, 0, Math.PI * 2);
         ctx.clip();
-        const level = cy - R - waveAmp - 6 + settle * 0;
-        for (let layer = 0; layer < 2; layer++) {
-          const dir = layer === 0 ? 1 : -1;
-          const speed = layer === 0 ? 2.6 : 1.9;
-          ctx.beginPath();
-          ctx.moveTo(cx - R, cy + R + 4);
-          for (let x = cx - R; x <= cx + R; x += 4) {
-            const wy =
-              level +
-              Math.sin((x / 34) * dir + t * speed) * waveAmp +
-              Math.sin((x / 13) * dir - t * speed * 1.4) * waveAmp * 0.35;
-            ctx.lineTo(x, wy);
-          }
-          ctx.lineTo(cx + R, cy + R + 4);
-          ctx.closePath();
-          ctx.fillStyle = `rgba(${tideCol[0]},${tideCol[1]},${tideCol[2]},${layer === 0 ? a.completeTide0 : a.completeTide1})`;
-          ctx.fill();
+        ctx.fillStyle = `rgba(${wr},${wg},${wb},${ca})`;
+        ctx.fillRect(cx - R, cy - R, R * 2, R * 2);
+        const sheen = ctx.createRadialGradient(cx - R * 0.25, cy - R * 0.3, R * 0.1, cx, cy, R);
+        sheen.addColorStop(0, `rgba(255,255,255,${0.16 * ca})`);
+        sheen.addColorStop(1, "rgba(255,255,255,0)");
+        ctx.fillStyle = sheen;
+        ctx.fillRect(cx - R, cy - R, R * 2, R * 2);
+        const surfaceY = cy - R + 12;
+        const amp = reduceMotion.current ? 0 : 2.2;
+        ctx.beginPath();
+        for (let x = cx - R; x <= cx + R; x += 4) {
+          const wy = surfaceY + Math.sin(x / 30 + t * 1.3) * amp;
+          x === cx - R ? ctx.moveTo(x, wy) : ctx.lineTo(x, wy);
         }
+        ctx.strokeStyle = `rgba(${gr2},${gg2},${gb2},${0.4 * ca})`;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
         ctx.restore();
+        // Outline ring on top of the water.
         ctx.beginPath();
         ctx.arc(cx, cy, R, 0, Math.PI * 2);
-        ctx.strokeStyle = `rgba(${tideCol[0]},${tideCol[1]},${tideCol[2]},${a.completeRing})`;
-        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = `rgba(${fp.ring[0]},${fp.ring[1]},${fp.ring[2]},${ca})`;
+        ctx.lineWidth = 1;
         ctx.stroke();
       }
 
@@ -1599,41 +1687,11 @@ function GatherBloomCircle({ sessionId, stepText, loading, phase, onPhaseChange,
           p.vy *= 0.992;
           p.life -= p.decay;
           if (p.life <= 0) continue;
-          const c = p.mint ? th.mint : th.purple;
+          const c = fp.mote;
           ctx.beginPath();
           ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
           ctx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},${a.bloom * p.life})`;
           ctx.fill();
-        }
-      }
-
-      if (ph === "complete") {
-        const k = Math.min(1, Math.max(0, (since - 0.55) / 0.5));
-        if (k > 0) {
-          const ease = 1 - Math.pow(1 - k, 3);
-          ctx.save();
-          ctx.translate(cx, cy);
-          const [ckr, ckg, ckb] = th.checkStroke ?? th.mint;
-          ctx.strokeStyle = `rgba(${ckr},${ckg},${ckb},${a.check})`;
-          ctx.lineWidth = a.checkWidth ?? 5.5;
-          ctx.lineCap = "round";
-          ctx.lineJoin = "round";
-          const p1 = [-52, 4], p2 = [-12, 44], p3 = [60, -36];
-          const l1 = Math.hypot(p2[0] - p1[0], p2[1] - p1[1]);
-          const l2 = Math.hypot(p3[0] - p2[0], p3[1] - p2[1]);
-          const drawn = ease * (l1 + l2);
-          ctx.beginPath();
-          ctx.moveTo(p1[0], p1[1]);
-          if (drawn <= l1) {
-            const k1 = drawn / l1;
-            ctx.lineTo(p1[0] + (p2[0] - p1[0]) * k1, p1[1] + (p2[1] - p1[1]) * k1);
-          } else {
-            ctx.lineTo(p2[0], p2[1]);
-            const k2 = (drawn - l1) / l2;
-            ctx.lineTo(p2[0] + (p3[0] - p2[0]) * k2, p2[1] + (p3[1] - p2[1]) * k2);
-          }
-          ctx.stroke();
-          ctx.restore();
         }
       }
 
@@ -1693,7 +1751,7 @@ function GatherBloomCircle({ sessionId, stepText, loading, phase, onPhaseChange,
         transform: showFocusText ? "scale(1)" : "scale(0.97)",
         transition: showFocusText ? "opacity 600ms ease 300ms, transform 600ms ease 300ms" : "opacity 600ms ease, transform 600ms ease",
       }}>
-        <p style={gatherTaskTextStyle(displayText, theme)}>{displayText}</p>
+        <p style={{ ...gatherTaskTextStyle(displayText, theme), color: `rgb(${fp.vesselText[0]}, ${fp.vesselText[1]}, ${fp.vesselText[2]})` }}>{displayText}</p>
         {resourceLink ? (
           <a
             href={resourceLink}
@@ -1741,12 +1799,26 @@ function inProgressShellBackground(isDark) {
     : "radial-gradient(ellipse at 50% 30%, #EEE9FF 0%, #F0EEF5 60%)";
 }
 
-function InProgressScreen({ gatherPhase, onGatherPhaseChange, onDone, onPause, onTooMuch, onDefer, step, resourceLink, stepsLoading }) {
+function InProgressScreen({ gatherPhase, onGatherPhaseChange, onDone, onPause, onTooMuch, onDefer, onMore, onDoneForNow, step, resourceLink, stepsLoading, focusPalette }) {
   const isDark = useContext(IsDarkContext);
   const [showDeferInput, setShowDeferInput] = useState(false);
   const [deferDraft, setDeferDraft] = useState("");
   const [gatherSessionId] = useState(() => Math.random());
   const isComplete = gatherPhase === "complete";
+  const fp = focusPalette || focusPaletteForHour();
+  const serifRgb = `rgb(${fp.serif[0]}, ${fp.serif[1]}, ${fp.serif[2]})`;
+  const serifMuted = `rgba(${fp.serif[0]}, ${fp.serif[1]}, ${fp.serif[2]}, 0.7)`;
+  const hintCol = `rgba(${fp.hint[0]}, ${fp.hint[1]}, ${fp.hint[2]}, ${fp.hintAlpha})`;
+
+  // Fade the resting copy + actions in during the last third of the bloom
+  // (~600ms beginning ~900ms after the hold completes), so the bloom's
+  // fade-out and the resting state read as one continuous moment.
+  const [restReady, setRestReady] = useState(false);
+  useEffect(() => {
+    if (!isComplete) { setRestReady(false); return; }
+    const id = setTimeout(() => setRestReady(true), 900);
+    return () => clearTimeout(id);
+  }, [isComplete]);
 
   return (
     <>
@@ -1758,7 +1830,7 @@ function InProgressScreen({ gatherPhase, onGatherPhaseChange, onDone, onPause, o
         minHeight: 28,
         flexShrink: 0,
       }}>
-        <Label style={{ margin: 0 }}>{isComplete ? "Step complete" : "In Progress"}</Label>
+        <Label style={{ margin: 0 }}>{isComplete ? "" : "In Progress"}</Label>
         <button
           onClick={onPause}
           aria-hidden={isComplete}
@@ -1784,6 +1856,7 @@ function InProgressScreen({ gatherPhase, onGatherPhaseChange, onDone, onPause, o
             loading={stepsLoading}
             onComplete={onDone}
             resourceLink={resourceLink}
+            focusPalette={fp}
           />
         </div>
         <div style={{
@@ -1805,11 +1878,11 @@ function InProgressScreen({ gatherPhase, onGatherPhaseChange, onDone, onPause, o
             transition: "opacity 300ms ease",
           }}>
             <div style={{
-              ...T.small, color: C.accent500, fontWeight: 600, marginBottom: 6,
+              ...T.small, color: hintCol, fontWeight: 600, marginBottom: 6,
             }}>
               Take your time. No rush.
             </div>
-            <div style={{ ...T.hint }}>Press and hold the circle to finish.</div>
+            <div style={{ ...T.hint, color: hintCol }}>Press and hold the circle to finish.</div>
           </div>
           <div style={{
             position: "absolute",
@@ -1819,49 +1892,66 @@ function InProgressScreen({ gatherPhase, onGatherPhaseChange, onDone, onPause, o
             alignItems: "center",
             justifyContent: "center",
             textAlign: "center",
-            opacity: isComplete ? 1 : 0,
+            opacity: restReady ? 1 : 0,
             pointerEvents: "none",
-            transition: "opacity 300ms ease",
+            transition: "opacity 600ms ease",
           }}>
             <div style={{
-              ...T.small, color: C.success500, fontWeight: 600, marginBottom: 6,
+              fontFamily: "'DM Serif Display', serif",
+              fontSize: 23,
+              lineHeight: 1.2,
+              color: serifRgb,
+              marginBottom: 6,
             }}>
               Small step taken.
             </div>
-            <div style={{ ...T.hint }}>That's real progress.</div>
+            <div style={{ ...T.subtitle, color: serifMuted }}>That's real progress.</div>
           </div>
         </div>
-        <div style={{
-          flexShrink: 0,
-          minHeight: FOCUS_ACTIONS_H,
-          display: "flex",
-          flexDirection: "column",
-          gap: 12,
-          visibility: isComplete ? "hidden" : "visible",
-          pointerEvents: isComplete ? "none" : "auto",
-        }}>
-          <BtnSecondary key="too-much" onClick={onTooMuch}>Too much?</BtnSecondary>
-          {showDeferInput ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 4 }}>
-              <div style={{ ...T.small, color: "var(--n7)" }}>What do you need first?</div>
-              <input
-                className="nudge-defer-input"
-                value={deferDraft}
-                onChange={e => setDeferDraft(e.target.value)}
-                placeholder="e.g. find the right document"
-                style={{
-                  border: `1.5px solid ${C.accent500}`, borderRadius: 12,
-                  padding: "12px 14px", width: "100%", boxSizing: "border-box",
-                  ...T.body, fontFamily: "Inter", color: "var(--n9)",
-                  background: isDark ? "#2D2A45" : C.neutral50,
-                }}
-              />
-              <style>{`.nudge-defer-input::placeholder { color: ${C.neutral300}; opacity: 1; }`}</style>
-              <BtnPrimary onClick={() => deferDraft.trim() && onDefer(deferDraft.trim())}>Save & come back</BtnPrimary>
-            </div>
-          ) : (
-            <BtnSecondary key="not-ready" onClick={() => setShowDeferInput(true)}>Not ready yet</BtnSecondary>
-          )}
+        <div style={{ position: "relative", flexShrink: 0, minHeight: FOCUS_ACTIONS_H }}>
+          <div style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 12,
+            visibility: isComplete ? "hidden" : "visible",
+            pointerEvents: isComplete ? "none" : "auto",
+          }}>
+            <BtnSecondary key="too-much" onClick={onTooMuch}>Too much?</BtnSecondary>
+            {showDeferInput ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 4 }}>
+                <div style={{ ...T.small, color: "var(--n7)" }}>What do you need first?</div>
+                <input
+                  className="nudge-defer-input"
+                  value={deferDraft}
+                  onChange={e => setDeferDraft(e.target.value)}
+                  placeholder="e.g. find the right document"
+                  style={{
+                    border: `1.5px solid ${C.accent500}`, borderRadius: 12,
+                    padding: "12px 14px", width: "100%", boxSizing: "border-box",
+                    ...T.body, fontFamily: "Inter", color: "var(--n9)",
+                    background: isDark ? "#2D2A45" : C.neutral50,
+                  }}
+                />
+                <style>{`.nudge-defer-input::placeholder { color: ${C.neutral300}; opacity: 1; }`}</style>
+                <BtnPrimary onClick={() => deferDraft.trim() && onDefer(deferDraft.trim())}>Save & come back</BtnPrimary>
+              </div>
+            ) : (
+              <BtnSecondary key="not-ready" onClick={() => setShowDeferInput(true)}>Not ready yet</BtnSecondary>
+            )}
+          </div>
+          <div style={{
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            flexDirection: "column",
+            gap: 12,
+            opacity: restReady ? 1 : 0,
+            pointerEvents: isComplete ? "auto" : "none",
+            transition: "opacity 600ms ease",
+          }}>
+            <BtnPrimary onClick={onMore}>One more thing</BtnPrimary>
+            <BtnSecondary onClick={onDoneForNow}>I'm done now</BtnSecondary>
+          </div>
         </div>
       </div>
     </>
@@ -2236,52 +2326,79 @@ function homeLerpCol(c1, c2, k) {
   return c1.map((v, i) => Math.round(homeLerp(v, c2[i], k)));
 }
 
+// Two-band palettes (sky / ocean). Action color drives all primary buttons
+// and accent links; card tint is a deeper version of the ocean color.
 const HOME_PALETTES = {
   morning: {
-    top: [255, 208, 188],
-    horizon: [52, 78, 132],
-    bottom: [92, 168, 148],
+    sky: [255, 219, 200],
+    ocean: [110, 145, 135],
     serif: [42, 36, 56],
     muted: [110, 100, 130],
-    accent: [86, 70, 175],
-    cardBg: [70, 60, 110],
-    cardAlpha: 0.12,
+    action: [220, 110, 90],
+    card: [60, 90, 80, 0.14],
     starOpacity: 0,
   },
   afternoon: {
-    top: [218, 232, 222],
-    horizon: [168, 158, 205],
-    bottom: [108, 92, 152],
+    sky: [232, 222, 210],
+    ocean: [88, 72, 138],
     serif: [42, 38, 64],
     muted: [120, 110, 142],
-    accent: [92, 75, 178],
-    cardBg: [50, 38, 95],
-    cardAlpha: 0.14,
+    action: [195, 145, 170],
+    card: [50, 35, 90, 0.14],
     starOpacity: 0,
   },
   evening: {
-    top: [16, 20, 46],
-    horizon: [118, 72, 138],
-    bottom: [8, 5, 22],
+    sky: [40, 32, 72],
+    ocean: [15, 12, 30],
     serif: [237, 234, 228],
     muted: [160, 152, 188],
-    accent: [180, 172, 219],
-    cardBg: [180, 172, 219],
-    cardAlpha: 0.14,
+    action: [124, 111, 205],
+    card: [15, 12, 30, 0.40],
     starOpacity: 0.45,
   },
 };
 
+// Relative luminance (sRGB) used to keep sky-zone text readable across
+// time-of-day transitions, where the background passes through mid tones.
+function homeRelLuminance(c) {
+  const f = (v) => {
+    const s = v / 255;
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]);
+}
+
+const HOME_DARK_INK = [42, 38, 60];
+const HOME_LIGHT_INK = [240, 237, 231];
+const HOME_DARK_MUTED = [96, 88, 116];
+const HOME_LIGHT_MUTED = [190, 184, 205];
+
+// Pick a fully dark or fully light ink for the sky-zone copy based on the
+// sky luminance — never a mid-grey — plus an opposite-tone shadow so the
+// brief transition windows stay legible.
+function homeSkyInk(palette) {
+  const light = homeRelLuminance(palette.sky) < 0.2;
+  return {
+    ink: light ? HOME_LIGHT_INK : HOME_DARK_INK,
+    muted: light ? HOME_LIGHT_MUTED : HOME_DARK_MUTED,
+    shadow: light ? "0 1px 14px rgba(0,0,0,0.40)" : "0 1px 10px rgba(255,255,255,0.20)",
+  };
+}
+
 function homePaletteForHour(h) {
+  const lerp4 = (a, b, k) => [
+    Math.round(homeLerp(a[0], b[0], k)),
+    Math.round(homeLerp(a[1], b[1], k)),
+    Math.round(homeLerp(a[2], b[2], k)),
+    homeLerp(a[3], b[3], k),
+  ];
   const lerpPal = (a, b, k) => ({
-    top: homeLerpCol(a.top, b.top, k),
-    horizon: homeLerpCol(a.horizon, b.horizon, k),
-    bottom: homeLerpCol(a.bottom, b.bottom, k),
+    sky: homeLerpCol(a.sky, b.sky, k),
+    ocean: homeLerpCol(a.ocean, b.ocean, k),
     serif: homeLerpCol(a.serif, b.serif, k),
     muted: homeLerpCol(a.muted, b.muted, k),
-    accent: homeLerpCol(a.accent, b.accent, k),
-    cardBg: homeLerpCol(a.cardBg, b.cardBg, k),
-    cardAlpha: homeLerp(a.cardAlpha, b.cardAlpha, k),
+    action: homeLerpCol(a.action, b.action, k),
+    card: lerp4(a.card, b.card, k),
     starOpacity: homeLerp(a.starOpacity, b.starOpacity, k),
   });
 
@@ -2293,26 +2410,30 @@ function homePaletteForHour(h) {
   return lerpPal(HOME_PALETTES.evening, HOME_PALETTES.morning, (h - 3) / 2);
 }
 
+// Current time-of-day action color, used by primary buttons app-wide.
+function homeActionColor(date = new Date()) {
+  return homePaletteForHour(homeFractionalHour(date)).action;
+}
+
 function homeFractionalHour(date = new Date()) {
   return date.getHours() + date.getMinutes() / 60 + date.getSeconds() / 3600;
 }
 
 function homeGreeting(returning, reason) {
+  if (reason === "paused") return { hint: "You were in the middle of something.", line1: "Welcome back.", line2: "What now?" };
   if (reason === "exit") return { hint: "That's okay.", line1: "Welcome back.", line2: "What now?" };
   if (reason === "done") return { hint: "Well done.", line1: "Welcome back.", line2: "What now?" };
   if (returning) return { hint: null, line1: "Welcome back.", line2: "What now?" };
   return { hint: null, line1: "What would you like", line2: "to work on?" };
 }
 
-function HomeScreen({ onResume, onContinueSession, inProgressSession, tasks, setTasks, onHistory, reason }) {
+function HomeScreen({ onResume, onContinueSession, inProgressSession, tasks, setTasks, onHistory, reason, pausedCard }) {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   const draftRef = useRef(null);
-  const typingTimer = useRef(null);
   const paletteRef = useRef(homePaletteForHour(homeFractionalHour()));
   const [draft, setDraft] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [isTyping, setIsTyping] = useState(false);
   const [palette, setPalette] = useState(() => homePaletteForHour(homeFractionalHour()));
 
   const returning = tasks.length > 0 || !!inProgressSession;
@@ -2364,7 +2485,6 @@ function HomeScreen({ onResume, onContinueSession, inProgressSession, tasks, set
 
     const rgb = (c) => `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
     const rgba = (c, a) => `rgba(${c[0]}, ${c[1]}, ${c[2]}, ${a})`;
-    const mixStop = (c1, c2, k) => rgb(homeLerpCol(c1, c2, k));
 
     const draw = (now) => {
       if (W <= 0 || H <= 0) {
@@ -2374,27 +2494,21 @@ function HomeScreen({ onResume, onContinueSession, inProgressSession, tasks, set
 
       const pal = paletteRef.current;
       const t = (now - startTime) / 1000;
-      const driftAmp = isTyping ? 1 : 0.4;
-      const drift = Math.sin(t * 0.15) * driftAmp * 0.006;
-      const horizon = 0.62 + drift;
-      const blend = 0.11;
-      const core = blend / 3;
 
+      // Static two-band gradient: solid sky (0–50%), soft blend (50–70%),
+      // solid ocean (70–100%). No drift, no horizon glow.
       const grad = ctx.createLinearGradient(0, 0, 0, H);
-      grad.addColorStop(0, rgb(pal.top));
-      grad.addColorStop(Math.max(0, horizon - blend * 1.6), mixStop(pal.top, pal.horizon, 0.18));
-      grad.addColorStop(Math.max(0, horizon - blend * 0.95), mixStop(pal.top, pal.horizon, 0.42));
-      grad.addColorStop(Math.max(0, horizon - core), mixStop(pal.top, pal.horizon, 0.72));
-      grad.addColorStop(horizon, mixStop(pal.top, pal.horizon, 0.88));
-      grad.addColorStop(Math.min(1, horizon + core), mixStop(pal.horizon, pal.bottom, 0.16));
-      grad.addColorStop(Math.min(1, horizon + blend * 0.95), mixStop(pal.horizon, pal.bottom, 0.48));
-      grad.addColorStop(Math.min(1, horizon + blend * 1.6), mixStop(pal.horizon, pal.bottom, 0.74));
-      grad.addColorStop(1, rgb(pal.bottom));
+      grad.addColorStop(0, rgb(pal.sky));
+      grad.addColorStop(0.5, rgb(pal.sky));
+      grad.addColorStop(0.7, rgb(pal.ocean));
+      grad.addColorStop(1, rgb(pal.ocean));
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, W, H);
 
+      // Stars only in the sky band (upper 50%), evening only.
       if (pal.starOpacity > 0) {
         for (const s of stars) {
+          if (s.yRatio >= 0.5) continue;
           const tw = 0.45 + Math.sin(t * s.speed + s.twinkle) * 0.35;
           const x = s.xRatio * W;
           const y = s.yRatio * H;
@@ -2419,7 +2533,7 @@ function HomeScreen({ onResume, onContinueSession, inProgressSession, tasks, set
       ro?.disconnect();
       window.removeEventListener("resize", resize);
     };
-  }, [isTyping]);
+  }, []);
 
   useEffect(() => {
     paletteRef.current = palette;
@@ -2427,9 +2541,6 @@ function HomeScreen({ onResume, onContinueSession, inProgressSession, tasks, set
 
   const onDraftInput = (value) => {
     setDraft(value);
-    setIsTyping(true);
-    if (typingTimer.current) clearTimeout(typingTimer.current);
-    typingTimer.current = setTimeout(() => setIsTyping(false), 1500);
   };
 
   const addTask = () => {
@@ -2457,6 +2568,7 @@ function HomeScreen({ onResume, onContinueSession, inProgressSession, tasks, set
 
   const rgb = (c) => `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
   const rgba = (c, a) => `rgba(${c[0]}, ${c[1]}, ${c[2]}, ${a})`;
+  const skyInk = homeSkyInk(palette);
 
   return (
     <div
@@ -2499,7 +2611,8 @@ function HomeScreen({ onResume, onContinueSession, inProgressSession, tasks, set
                 margin: "0 0 8px",
                 fontSize: 14,
                 fontWeight: 500,
-                color: rgba(palette.muted, 0.85),
+                color: rgba(skyInk.muted, 0.9),
+                textShadow: skyInk.shadow,
                 opacity: 0,
                 animation: "homeRise 800ms 120ms cubic-bezier(.3,.9,.4,1) forwards",
               }}
@@ -2514,7 +2627,8 @@ function HomeScreen({ onResume, onContinueSession, inProgressSession, tasks, set
             fontSize: 38,
             lineHeight: 1.05,
             letterSpacing: "-0.015em",
-            color: rgb(palette.serif),
+            color: rgb(skyInk.ink),
+            textShadow: skyInk.shadow,
           }}>
             <span className="home-rise home-line1">{greeting.line1}</span>
             <br />
@@ -2548,8 +2662,8 @@ function HomeScreen({ onResume, onContinueSession, inProgressSession, tasks, set
                     border: "none",
                     cursor: "pointer",
                     background: selectedIndex === i
-                      ? rgb(palette.accent)
-                      : rgba(palette.serif, 0.28),
+                      ? rgb(palette.action)
+                      : rgba(skyInk.ink, 0.32),
                   }}
                 />
                 <input
@@ -2559,9 +2673,10 @@ function HomeScreen({ onResume, onContinueSession, inProgressSession, tasks, set
                   onClick={() => setSelectedIndex(i)}
                   className="home-task-input"
                   style={{
-                    color: rgb(palette.serif),
-                    borderColor: rgba(palette.serif, selectedIndex === i ? 0.42 : 0.18),
-                    opacity: selectedIndex === i ? 1 : 0.82,
+                    color: rgb(skyInk.ink),
+                    textShadow: skyInk.shadow,
+                    borderColor: rgba(skyInk.ink, selectedIndex === i ? 0.45 : 0.2),
+                    opacity: selectedIndex === i ? 1 : 0.88,
                     cursor: "pointer",
                   }}
                 />
@@ -2572,7 +2687,8 @@ function HomeScreen({ onResume, onContinueSession, inProgressSession, tasks, set
                   style={{
                     background: "none",
                     border: "none",
-                    color: rgba(palette.muted, 0.75),
+                    color: rgba(skyInk.muted, 0.8),
+                    textShadow: skyInk.shadow,
                     fontSize: 15,
                     lineHeight: 1,
                     cursor: "pointer",
@@ -2590,7 +2706,7 @@ function HomeScreen({ onResume, onContinueSession, inProgressSession, tasks, set
                 height: 7,
                 borderRadius: "50%",
                 flexShrink: 0,
-                background: rgba(palette.serif, 0.18),
+                background: rgba(skyInk.ink, 0.2),
               }} />
               <input
                 ref={draftRef}
@@ -2601,8 +2717,9 @@ function HomeScreen({ onResume, onContinueSession, inProgressSession, tasks, set
                 placeholder={tasks.length === 0 ? "Anything on your mind" : "Another thing…"}
                 className="home-task-input home-rise home-input"
                 style={{
-                  color: rgb(palette.serif),
-                  borderColor: rgba(palette.serif, 0.25),
+                  color: rgb(skyInk.ink),
+                  textShadow: skyInk.shadow,
+                  borderColor: rgba(skyInk.ink, 0.28),
                 }}
               />
               {draft.trim() ? (
@@ -2610,7 +2727,7 @@ function HomeScreen({ onResume, onContinueSession, inProgressSession, tasks, set
                   type="button"
                   className="home-add-btn"
                   onClick={addTask}
-                  style={{ color: rgb(palette.accent) }}
+                  style={{ color: rgba(palette.action, 0.75) }}
                 >
                   Add
                 </button>
@@ -2624,6 +2741,8 @@ function HomeScreen({ onResume, onContinueSession, inProgressSession, tasks, set
             disabled={!canStart}
             onClick={handleReady}
             style={{
+              background: rgb(palette.action),
+              boxShadow: `0 6px 24px ${rgba(palette.action, canStart ? 0.42 : 0.18)}`,
               opacity: canStart ? 1 : 0.45,
               cursor: canStart ? "pointer" : "default",
             }}
@@ -2640,12 +2759,81 @@ function HomeScreen({ onResume, onContinueSession, inProgressSession, tasks, set
           flexDirection: "column",
           paddingTop: 18,
         }}>
-          {inProgressSession ? (
+          {pausedCard ? (
             <div
               className="home-resume-card home-rise home-resume"
               style={{
-                background: rgba(palette.cardBg, palette.cardAlpha),
-                borderColor: rgba(palette.cardBg, palette.cardAlpha + 0.1),
+                background: `rgba(${palette.card[0]}, ${palette.card[1]}, ${palette.card[2]}, ${palette.card[3]})`,
+                borderColor: `rgba(${palette.card[0]}, ${palette.card[1]}, ${palette.card[2]}, ${palette.card[3] + 0.08})`,
+              }}
+            >
+              <div style={{
+                fontSize: 11,
+                fontWeight: 700,
+                letterSpacing: "0.12em",
+                textTransform: "uppercase",
+                color: rgba(palette.serif, 0.65),
+              }}>
+                You were here
+              </div>
+              {pausedCard.task ? (
+                <div style={{
+                  margin: "8px 0 0",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  lineHeight: 1.3,
+                  color: rgba(palette.serif, 0.7),
+                }}>
+                  {pausedCard.task}
+                </div>
+              ) : null}
+              {pausedCard.pauseProgress ? (
+                <div style={{
+                  margin: "4px 0 0",
+                  fontSize: 12.5,
+                  fontWeight: 500,
+                  lineHeight: 1.35,
+                  color: rgba(palette.action, 0.75),
+                }}>
+                  {pausedCard.pauseProgress}
+                </div>
+              ) : null}
+              <div style={{
+                margin: pausedCard.note ? "10px 0 6px" : "10px 0 14px",
+                fontSize: 15.5,
+                fontWeight: 500,
+                lineHeight: 1.35,
+                color: rgb(palette.serif),
+              }}>
+                {pausedCard.step?.text || "Your step is loading…"}
+              </div>
+              {pausedCard.note ? (
+                <div style={{
+                  margin: "0 0 14px",
+                  fontSize: 13,
+                  fontWeight: 400,
+                  fontStyle: "italic",
+                  lineHeight: 1.5,
+                  color: rgba(palette.serif, 0.55),
+                }}>
+                  {pausedCard.note}
+                </div>
+              ) : null}
+              <button
+                type="button"
+                className="home-resume-btn"
+                onClick={onContinueSession}
+                style={{ color: rgba(palette.action, 0.75) }}
+              >
+                Continue where you left off ›
+              </button>
+            </div>
+          ) : inProgressSession ? (
+            <div
+              className="home-resume-card home-rise home-resume"
+              style={{
+                background: `rgba(${palette.card[0]}, ${palette.card[1]}, ${palette.card[2]}, ${palette.card[3]})`,
+                borderColor: `rgba(${palette.card[0]}, ${palette.card[1]}, ${palette.card[2]}, ${palette.card[3] + 0.08})`,
               }}
             >
               <div style={{
@@ -2670,7 +2858,7 @@ function HomeScreen({ onResume, onContinueSession, inProgressSession, tasks, set
                 type="button"
                 className="home-resume-btn"
                 onClick={onContinueSession}
-                style={{ color: rgb(palette.accent) }}
+                style={{ color: rgba(palette.action, 0.75) }}
               >
                 Continue ›
               </button>
@@ -2681,7 +2869,7 @@ function HomeScreen({ onResume, onContinueSession, inProgressSession, tasks, set
             type="button"
             className="home-history-link home-rise home-history"
             onClick={onHistory}
-            style={{ color: rgba(palette.accent, 0.75) }}
+            style={{ color: rgba(palette.action, 0.55) }}
           >
             History
           </button>
@@ -2697,18 +2885,9 @@ function doneShellBackground(isDark) {
     : "radial-gradient(ellipse at 50% 20%, #E8FFF4 0%, #F0EEF5 60%)";
 }
 
-function sessionCompleteShellBackground() {
-  return "radial-gradient(ellipse at 50% 18%, #1A2D24 0%, #141022 45%, #0F0D1E 100%)";
-}
-
-const SESSION_COMPLETE_PURPLE = [124, 111, 205];
-const SESSION_COMPLETE_MINT = [111, 208, 172];
 const SESSION_COMPLETE_HALO_R = GATHER_CIRCLE_R + 52;
-const SESSION_COMPLETE_EYEBROW = "#9D93D8";
-const SESSION_COMPLETE_HEADLINE = "#EDEAE4";
-const SESSION_COMPLETE_TIMESTAMP = "#6FD0AC";
-const SESSION_COMPLETE_CLOSE_BORDER = "#2F2C42";
-const SESSION_COMPLETE_CLOSE_COLOR = "#B4ACDB";
+// Resting opacity of the step text that sits inside the rising water.
+const SC_STEP_TEXT_ALPHA = 0.85;
 
 const lineFor = (n) => {
   if (n <= 1) return "You showed up.";
@@ -2732,12 +2911,15 @@ function sessionCompleteCaptionStyle(text) {
   return { fontSize, lineHeight: 1.4 };
 }
 
-function SessionCompleteScreen({ stepCount, sessionSteps, fallbackSteps, onClose }) {
+function SessionCompleteScreen({ stepCount, sessionSteps, fallbackSteps, focusPalette, onClose }) {
   const canvasRef = useRef(null);
   const captionOverlayRef = useRef(null);
   const stepCountRef = useRef(stepCount);
   const sessionStepsRef = useRef(sessionSteps);
   const fallbackStepsRef = useRef(fallbackSteps);
+  const fp = focusPalette || focusPaletteForHour();
+  const fpRef = useRef(fp);
+  fpRef.current = fp;
   stepCountRef.current = stepCount;
   sessionStepsRef.current = sessionSteps;
   fallbackStepsRef.current = fallbackSteps;
@@ -2835,7 +3017,6 @@ function SessionCompleteScreen({ stepCount, sessionSteps, fallbackSteps, onClose
       Math.sin((x / 13) * dir - t * speed * 1.4) * amp * 0.35;
 
     const lerp = (a, b, k) => a + (b - a) * k;
-    const mixCol = (c1, c2, k) => c1.map((v, i) => Math.round(lerp(v, c2[i], k)));
 
     const sampleLevel = (time, keyframes) => {
       if (!keyframes || keyframes.length === 0) return 0;
@@ -2867,15 +3048,18 @@ function SessionCompleteScreen({ stepCount, sessionSteps, fallbackSteps, onClose
         el.style.visibility = "hidden";
         return;
       }
-      // TODO: replace with past-tense completion form
       el.textContent = text;
       const { fontSize, lineHeight } = sessionCompleteCaptionStyle(text);
       el.style.fontSize = `${fontSize}px`;
       el.style.lineHeight = String(lineHeight);
-      el.style.opacity = String(alpha * vesselAlpha);
+      el.style.opacity = String(alpha * vesselAlpha * SC_STEP_TEXT_ALPHA);
       el.style.visibility = "visible";
       if (color) {
         el.style.color = `rgb(${color[0]}, ${color[1]}, ${color[2]})`;
+        const lum = (color[0] * 0.299 + color[1] * 0.587 + color[2] * 0.114) / 255;
+        el.style.textShadow = lum > 0.5
+          ? "0 1px 10px rgba(15, 13, 30, 0.45)"
+          : "0 1px 8px rgba(255, 255, 255, 0.3)";
       }
     };
 
@@ -2907,7 +3091,7 @@ function SessionCompleteScreen({ stepCount, sessionSteps, fallbackSteps, onClose
           const inA = Math.min(1, Math.max(0, localT / 0.4));
           const outA = Math.min(1, Math.max(0, (holdEnd - time) / 0.4));
           captionAlpha = Math.min(inA, outA);
-          captionStepColor = mixCol(SESSION_COMPLETE_PURPLE, SESSION_COMPLETE_MINT, 1);
+          captionStepColor = fpRef.current.scInk;
         }
       } else if (schedule.current) {
         for (const e of schedule.current.events) {
@@ -2920,8 +3104,7 @@ function SessionCompleteScreen({ stepCount, sessionSteps, fallbackSteps, onClose
           if (a > captionAlpha) {
             captionAlpha = a;
             activeCaptionIdx = e.idx;
-            const targetLevel = (e.idx + 1) / stepCountRef.current;
-            captionStepColor = mixCol(SESSION_COMPLETE_PURPLE, SESSION_COMPLETE_MINT, Math.min(1, targetLevel * 1.1));
+            captionStepColor = fpRef.current.scInk;
           }
         }
       }
@@ -2952,7 +3135,7 @@ function SessionCompleteScreen({ stepCount, sessionSteps, fallbackSteps, onClose
         cy,
         SESSION_COMPLETE_HALO_R
       );
-      const haloColor = mixCol(SESSION_COMPLETE_PURPLE, SESSION_COMPLETE_MINT, level);
+      const haloColor = fpRef.current.bloom;
       const haloCenterAlpha = Math.min(0.18, 0.10 + level * 0.08);
       halo.addColorStop(0, `rgba(${haloColor[0]},${haloColor[1]},${haloColor[2]},${haloCenterAlpha})`);
       halo.addColorStop(0.35, `rgba(${haloColor[0]},${haloColor[1]},${haloColor[2]},${haloCenterAlpha * 0.45})`);
@@ -2967,7 +3150,8 @@ function SessionCompleteScreen({ stepCount, sessionSteps, fallbackSteps, onClose
         ctx.scale(vesselScale, vesselScale);
         ctx.globalAlpha = vesselAlpha;
 
-        const rimCol = mixCol(SESSION_COMPLETE_PURPLE, SESSION_COMPLETE_MINT, Math.min(1, level + 0.2));
+        const fpc = fpRef.current;
+        const rimCol = fpc.ring;
 
         ctx.beginPath();
         ctx.arc(0, 0, R, 0, Math.PI * 2);
@@ -2975,9 +3159,13 @@ function SessionCompleteScreen({ stepCount, sessionSteps, fallbackSteps, onClose
         ctx.lineWidth = 1.8 + level * 0.6;
         ctx.stroke();
 
+        // Vessel disc — opaque inner dome gradient (center → edge); water fills on top.
+        const dome = ctx.createRadialGradient(0, 0, 0, 0, 0, R);
+        dome.addColorStop(0, `rgb(${fpc.scDomeCenter[0]},${fpc.scDomeCenter[1]},${fpc.scDomeCenter[2]})`);
+        dome.addColorStop(1, `rgb(${fpc.disc[0]},${fpc.disc[1]},${fpc.disc[2]})`);
         ctx.beginPath();
         ctx.arc(0, 0, R - 1, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(${SESSION_COMPLETE_PURPLE[0]},${SESSION_COMPLETE_PURPLE[1]},${SESSION_COMPLETE_PURPLE[2]},${0.05 + (1 - level) * 0.04})`;
+        ctx.fillStyle = dome;
         ctx.fill();
 
         ctx.save();
@@ -2985,7 +3173,7 @@ function SessionCompleteScreen({ stepCount, sessionSteps, fallbackSteps, onClose
         ctx.arc(0, 0, R - 1, 0, Math.PI * 2);
         ctx.clip();
 
-        const waterCol = mixCol(SESSION_COMPLETE_PURPLE, SESSION_COMPLETE_MINT, Math.min(1, level * 1.2));
+        const waterCol = fpRef.current.scWater;
         const baseAmp = 4.5;
         const tailAt = schedule.current?.tailAt ?? Infinity;
         const atRest = level >= 0.98 && time >= tailAt;
@@ -3014,8 +3202,8 @@ function SessionCompleteScreen({ stepCount, sessionSteps, fallbackSteps, onClose
           Math.max(0, waterCol[2] - 16),
         ];
         const depthGrad = ctx.createLinearGradient(0, surface, 0, R);
-        depthGrad.addColorStop(0, `rgba(${lightMint[0]},${lightMint[1]},${lightMint[2]},${0.22 * level})`);
-        depthGrad.addColorStop(1, `rgba(${deepMint[0]},${deepMint[1]},${deepMint[2]},${0.28 * level})`);
+        depthGrad.addColorStop(0, `rgb(${lightMint[0]},${lightMint[1]},${lightMint[2]})`);
+        depthGrad.addColorStop(1, `rgb(${deepMint[0]},${deepMint[1]},${deepMint[2]})`);
 
         ctx.beginPath();
         ctx.moveTo(-R, R + 4);
@@ -3100,11 +3288,13 @@ function SessionCompleteScreen({ stepCount, sessionSteps, fallbackSteps, onClose
     return () => cancelAnimationFrame(raf);
   }, [stepCount, sessionSteps, fallbackSteps]);
 
-  const eyebrowColor = SESSION_COMPLETE_EYEBROW;
-  const headlineColor = SESSION_COMPLETE_HEADLINE;
-  const timestampColor = SESSION_COMPLETE_TIMESTAMP;
-  const closeBorder = SESSION_COMPLETE_CLOSE_BORDER;
-  const closeColor = SESSION_COMPLETE_CLOSE_COLOR;
+  const ink = fp.scInk;
+  const inkRgb = `rgb(${ink[0]}, ${ink[1]}, ${ink[2]})`;
+  const eyebrowColor = `rgba(${ink[0]}, ${ink[1]}, ${ink[2]}, 0.55)`;
+  const headlineColor = inkRgb;
+  const timestampColor = `rgba(${fp.bloom[0]}, ${fp.bloom[1]}, ${fp.bloom[2]}, 0.7)`;
+  const closeBorder = `rgba(${ink[0]}, ${ink[1]}, ${ink[2]}, 0.25)`;
+  const closeColor = `rgba(${ink[0]}, ${ink[1]}, ${ink[2]}, 0.6)`;
 
   return (
     <>
@@ -3113,7 +3303,7 @@ function SessionCompleteScreen({ stepCount, sessionSteps, fallbackSteps, onClose
         style={{
           position: "fixed",
           inset: 0,
-          background: sessionCompleteShellBackground(),
+          background: `rgb(${fp.bg[0]}, ${fp.bg[1]}, ${fp.bg[2]})`,
           opacity: bgOpacity,
           transition: prefersReducedMotion
             ? "none"
@@ -3192,8 +3382,7 @@ function SessionCompleteScreen({ stepCount, sessionSteps, fallbackSteps, onClose
                 opacity: 0,
                 visibility: "hidden",
                 pointerEvents: "none",
-                color: SESSION_COMPLETE_HEADLINE,
-                textShadow: "0 1px 14px rgba(15, 13, 30, 0.85), 0 0 24px rgba(15, 13, 30, 0.5)",
+                color: inkRgb,
                 overflowWrap: "break-word",
               }}
             />
@@ -3463,56 +3652,20 @@ function SwitchTaskScreen({ tasks, onPick, onAdd, onBack }) {
   );
 }
 
-function ReturnPausedScreen({ next, onFresh, onPickTask, step, task, note, pauseProgress, tasks }) {
-  const isDark = useContext(IsDarkContext);
-  const chipTasks = (tasks || []).slice(0, 3);
-  const chipLabel = (name) => {
-    const max = 22;
-    return name.length > max ? `${name.slice(0, max)}…` : name;
-  };
-
+// Paused "welcome back" screen — reuses the redesigned home landscape with a
+// palette-aware "You were here" card to resume the paused session.
+function ReturnPausedScreen({ next, onPickTask, step, task, note, pauseProgress, tasks, setTasks, onHistory }) {
   return (
-    <>
-      <Label color={C.accent500}>Good Morning</Label>
-      <div style={{ ...T.heading, color: "var(--n9)", marginBottom: 8 }}>Welcome back</div>
-      <div style={{ ...T.hint, marginBottom: 28 }}>You were in the middle of something.</div>
-
-      <Card style={{ background: isDark ? "#2A2445" : C.accent100, marginBottom: 24, borderRadius: 20 }}>
-        <div style={{ ...T.label, color: C.accent500, marginBottom: 6 }}>You were here</div>
-        <div style={{ ...T.small, color: isDark ? "var(--n9)" : C.accent700, marginBottom: 4 }}>{task || "Your task"}</div>
-        {pauseProgress ? (
-          <div style={{ ...T.hint, color: C.accent500, marginBottom: 8 }}>{pauseProgress}</div>
-        ) : null}
-        <div style={{ ...T.subtitle, color: "var(--n9)", marginBottom: note ? 12 : 16, fontWeight: 700 }}>{step?.text || "Pick one bullet and expand it"}</div>
-        {note ? (
-          <div style={{ ...T.small, color: "var(--n7)", marginBottom: 16, lineHeight: 1.5, fontStyle: "italic" }}>{note}</div>
-        ) : null}
-        <BtnPrimary onClick={next}>Continue where you left off</BtnPrimary>
-      </Card>
-
-      <div style={{ ...T.label, color: C.neutral300, textAlign: "center", marginBottom: 16 }}>Or start something new</div>
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "center" }}>
-        {chipTasks.map(t => (
-          <button
-            key={t}
-            title={t}
-            onClick={() => onPickTask(t)}
-            style={{
-              padding: "10px 18px", borderRadius: BTN_RADIUS,
-              border: pillBorder(isDark, false), background: pillBackground(isDark, false),
-              color: pillTextColor(isDark, false), ...BTN_FONT, fontSize: 16,
-              cursor: "pointer", fontFamily: "Inter",
-            }}
-          >{chipLabel(t)}</button>
-        ))}
-        <button onClick={onFresh} style={{
-          padding: "10px 18px", borderRadius: BTN_RADIUS,
-          border: pillBorder(isDark, false), background: pillBackground(isDark, false),
-          color: pillTextColor(isDark, false), ...BTN_FONT, fontSize: 16,
-          cursor: "pointer", fontFamily: "Inter",
-        }}>+ Add</button>
-      </div>
-    </>
+    <HomeScreen
+      reason="paused"
+      inProgressSession={null}
+      onContinueSession={next}
+      onResume={onPickTask}
+      tasks={tasks}
+      setTasks={setTasks}
+      onHistory={onHistory}
+      pausedCard={{ task, step, note, pauseProgress }}
+    />
   );
 }
 
@@ -4043,6 +4196,8 @@ export default function NudgeApp() {
   const [inProgressSession, setInProgressSession] = useState(null);
   const [sessionStepCount, setSessionStepCount] = useState(0);
   const [sessionSteps, setSessionSteps] = useState([]);
+  // Time-of-day focus palette, locked when a focus session starts.
+  const [focusPalette, setFocusPalette] = useState(() => focusPaletteForHour());
 
   useEffect(() => {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
@@ -4194,6 +4349,7 @@ export default function NudgeApp() {
     if (stepsBusy || !currentStep?.text) return;
     pinnedInProgressStep.current = currentStep;
     activeCompletionTask.current = task;
+    setFocusPalette(focusPaletteForHour());
     go("inprogress");
   };
 
@@ -4316,7 +4472,7 @@ export default function NudgeApp() {
       taskAllStepsCompleteRef.current = true;
       removeTaskByName(taskId);
       go("momentum");
-    } else { setIsLastStep(next >= taskSteps.length - 1); setStepIndex(next); if (c === 2) go("pattern"); else go("done"); }
+    } else { setIsLastStep(next >= taskSteps.length - 1); setStepIndex(next); if (c === 2) go("pattern"); /* else: stay on the in-progress step-complete resting state; its buttons drive the next move */ }
   };
 
   const endSessionWithTaskAdvance = ({ fullyComplete = false, resetSessionSteps = false, completedTask = null } = {}) => {
@@ -4351,7 +4507,7 @@ export default function NudgeApp() {
     ready: <ReadyScreen next={() => go("suggestion")} back={() => go("setup")} setGranularity={setGranularity} />,
     suggestion: <SuggestionScreen next={enterInProgress} onTooHard={() => { if (!stepsBusy && currentStep) go("simplify"); }} onAnother={() => go("allsteps")} onSkip={() => setStepIndex(i => (taskSteps.length ? (i + 1) % taskSteps.length : 0))} onExit={() => goHome("exit")} task={task} stepIndex={stepIndex} steps={taskSteps} energy={defaultEnergy} loading={stepsBusy} deferredNote={deferredNote} onDismissDeferNote={() => setDeferredNote("")} />,
     allsteps: <AllStepsScreen back={() => go("suggestion")} steps={taskSteps} task={task} stepIndex={stepIndex} onPick={i => { setStepIndex(i); go("suggestion"); }} loading={stepsBusy} stepLinks={stepLinks} onSetStepLink={(i, url) => setStepLinks(p => ({ ...p, [i]: url }))} />,
-    inprogress: <InProgressScreen gatherPhase={gatherPhase} onGatherPhaseChange={setGatherPhase} step={inProgressStep} resourceLink={resourceLink} stepsLoading={stepsBusy && !pinnedInProgressStep.current} onDone={handleDone} onPause={() => { setPausedStep(inProgressStep); go("pause"); }} onTooMuch={() => go("simplify")} onDefer={(note) => { setDeferredNote(note); go("suggestion"); }} />,
+    inprogress: <InProgressScreen gatherPhase={gatherPhase} onGatherPhaseChange={setGatherPhase} step={inProgressStep} resourceLink={resourceLink} stepsLoading={stepsBusy && !pinnedInProgressStep.current} onDone={handleDone} onPause={() => { setPausedStep(inProgressStep); go("pause"); }} onTooMuch={() => go("simplify")} onDefer={(note) => { setDeferredNote(note); go("suggestion"); }} onMore={() => go("suggestion")} onDoneForNow={openSessionComplete} focusPalette={focusPalette} />,
     simplify: <SimplifyScreen next={enterInProgress} onStillTooMuch={() => go("suggestion")} step={currentStep} />,
     pause: <PauseScreen
       onSaveAndPause={(data) => { savePauseState(data); go("return_paused"); }}
@@ -4374,13 +4530,15 @@ export default function NudgeApp() {
       stepCount={sessionStepCount}
       sessionSteps={sessionSteps}
       fallbackSteps={completedSteps}
+      focusPalette={focusPalette}
       onClose={finishSessionComplete}
     />,
     return_paused: <ReturnPausedScreen
       next={enterInProgress}
-      onFresh={() => { clearInProgressSession(); go("switch_task"); }}
       onPickTask={(t) => { clearInProgressSession(); setTasks([t, ...tasks.filter(x => x !== t)]); setStepIndex(0); go("suggestion"); }}
       tasks={tasks}
+      setTasks={setTasks}
+      onHistory={() => go("history")}
       step={pausedStep || currentStep}
       task={pausedTaskName || task}
       note={pausedNote}
@@ -4413,16 +4571,16 @@ export default function NudgeApp() {
     />,
   };
 
-  const shellBackground = screen === "home"
+  const isHome = screen === "home" || screen === "return_paused";
+  const shellBackground = isHome
     ? "transparent"
     : screen === "session_complete"
-      ? doneShellBackground(isDark)
+      ? `rgb(${focusPalette.bg[0]}, ${focusPalette.bg[1]}, ${focusPalette.bg[2]})`
       : screen === "inprogress"
-        ? (gatherPhase === "complete" ? doneShellBackground(isDark) : inProgressShellBackground(isDark))
+        ? `rgb(${focusPalette.bg[0]}, ${focusPalette.bg[1]}, ${focusPalette.bg[2]})`
         : screen === "done"
           ? doneShellBackground(isDark)
           : (isDark ? "#1A1828" : C.neutral100);
-  const isHome = screen === "home";
 
   return (
     <IsDarkContext.Provider value={isDark}>
@@ -4509,6 +4667,7 @@ html, body {
   color: #fff;
   font: inherit;
   font-size: 16.5px;
+  line-height: 1.4;
   font-weight: 700;
   box-shadow: 0 6px 24px rgba(124,111,205,0.42);
   transition: transform 150ms ease, background 150ms ease, opacity 250ms ease;
