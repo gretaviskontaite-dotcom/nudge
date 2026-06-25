@@ -819,35 +819,57 @@ function descentMoteProgress(rawT, reducedMotion) {
 
 function vesselAssemblyFromProgress(progress) {
   const p = Math.min(1, Math.max(0, progress));
-  const ringAlpha = Math.min(1, Math.max(0, (p - 0.03) / 0.5));
-  const fillT = Math.min(1, Math.max(0, (p - 0.04) / 0.72));
-  const fillAlpha = fillT * fillT * (3 - 2 * fillT);
-  const fillRadius = 0.05 + 0.95 * fillT;
-  return { ringAlpha, fillAlpha, fillRadius };
+  const eased = p * p * (3 - 2 * p);
+  const ringAlpha = Math.min(1, Math.max(0, (p - 0.22) / 0.58)) * Math.pow(eased, 0.85);
+  const glowStrength = eased * eased;
+  return { ringAlpha, glowStrength, eased };
 }
 
 function drawAssemblingVessel(ctx, { cx, cy, R, fp, progress }) {
-  const { ringAlpha, fillAlpha, fillRadius } = vesselAssemblyFromProgress(progress);
-  if (fillAlpha > 0.008) {
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(cx, cy, R, 0, Math.PI * 2);
-    ctx.clip();
-    const rFill = R * fillRadius;
-    const dome = ctx.createRadialGradient(cx, cy, 0, cx, cy, rFill);
-    dome.addColorStop(0, `rgba(${fp.domeCenter[0]},${fp.domeCenter[1]},${fp.domeCenter[2]},${fillAlpha})`);
-    dome.addColorStop(0.68, `rgba(${fp.domeEdge[0]},${fp.domeEdge[1]},${fp.domeEdge[2]},${fillAlpha * 0.92})`);
-    dome.addColorStop(1, `rgba(${fp.domeEdge[0]},${fp.domeEdge[1]},${fp.domeEdge[2]},${fillAlpha * 0.72})`);
-    ctx.beginPath();
-    ctx.arc(cx, cy, rFill, 0, Math.PI * 2);
-    ctx.fillStyle = dome;
-    ctx.fill();
-    ctx.restore();
+  const { ringAlpha, glowStrength, eased } = vesselAssemblyFromProgress(progress);
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, Math.PI * 2);
+  ctx.clip();
+
+  if (glowStrength > 0.003) {
+    if (eased >= 0.995) {
+      const dome = ctx.createRadialGradient(cx, cy, 0, cx, cy, R);
+      dome.addColorStop(0, `rgba(${fp.domeCenter[0]},${fp.domeCenter[1]},${fp.domeCenter[2]},1)`);
+      dome.addColorStop(1, `rgba(${fp.domeEdge[0]},${fp.domeEdge[1]},${fp.domeEdge[2]},1)`);
+      ctx.fillStyle = dome;
+      ctx.fillRect(cx - R, cy - R, R * 2, R * 2);
+    } else {
+      const intensity = glowStrength * 0.88;
+      const reach = 0.58 + eased * 0.38;
+      const glow = ctx.createRadialGradient(cx, cy, R * 0.08, cx, cy, R);
+      glow.addColorStop(0, `rgba(${fp.domeCenter[0]},${fp.domeCenter[1]},${fp.domeCenter[2]},${intensity * 0.42})`);
+      glow.addColorStop(0.32, `rgba(${fp.domeCenter[0]},${fp.domeCenter[1]},${fp.domeCenter[2]},${intensity * 0.22})`);
+      glow.addColorStop(reach, `rgba(${fp.domeEdge[0]},${fp.domeEdge[1]},${fp.domeEdge[2]},${intensity * 0.09})`);
+      glow.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = glow;
+      ctx.fillRect(cx - R, cy - R, R * 2, R * 2);
+
+      if (eased > 0.28) {
+        const deep = (eased - 0.28) / 0.72;
+        const deepA = deep * deep * 0.38;
+        const inner = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * (0.35 + deep * 0.65));
+        inner.addColorStop(0, `rgba(${fp.domeCenter[0]},${fp.domeCenter[1]},${fp.domeCenter[2]},${deepA})`);
+        inner.addColorStop(0.55, `rgba(${fp.domeEdge[0]},${fp.domeEdge[1]},${fp.domeEdge[2]},${deepA * 0.45})`);
+        inner.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.fillStyle = inner;
+        ctx.fillRect(cx - R, cy - R, R * 2, R * 2);
+      }
+    }
   }
-  if (ringAlpha > 0.02) {
+
+  ctx.restore();
+
+  if (ringAlpha > 0.012) {
     ctx.beginPath();
     ctx.arc(cx, cy, R, 0, Math.PI * 2);
-    ctx.strokeStyle = `rgba(${fp.ring[0]},${fp.ring[1]},${fp.ring[2]},${ringAlpha})`;
+    ctx.strokeStyle = `rgba(${fp.ring[0]},${fp.ring[1]},${fp.ring[2]},${ringAlpha * 0.82})`;
     ctx.lineWidth = 1;
     ctx.stroke();
   }
