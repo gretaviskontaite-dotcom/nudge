@@ -200,7 +200,7 @@ Respond ONLY with a JSON array, no markdown, no explanation:
   return await response.json();
 }
 
-function useTaskBreakdown(task, energy, timeAvailable, granularity) {
+function useTaskBreakdown(task, energy, timeAvailable, granularity, enabled = true) {
   const [steps, setSteps] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -208,6 +208,10 @@ function useTaskBreakdown(task, energy, timeAvailable, granularity) {
   const cache = useRef({});
 
   useEffect(() => {
+    if (!enabled) {
+      setLoading(false);
+      return;
+    }
     if (!task) {
       setLoading(false);
       setSteps([]);
@@ -245,7 +249,7 @@ function useTaskBreakdown(task, energy, timeAvailable, granularity) {
         setLoading(false);
       });
     return () => { cancelled = true; };
-  }, [task, energy, timeAvailable, granularity]);
+  }, [task, energy, timeAvailable, granularity, enabled]);
 
   return { steps, loading, error, stepsTask };
 }
@@ -799,161 +803,550 @@ function LoadingStepCard({ style = {} }) {
   );
 }
 
-const SUGGESTION_FADE_MS = 300;
-const SUGGESTION_STAGGER_MS = 150;
-const SUGGESTION_CARD_SLOT_MIN_H = 158;
-const SUGGESTION_PROGRESS_H = 52;
-const SUGGESTION_SEE_ALL_H = 38;
-const SUGGESTION_ACTIONS_H = BTN_H * 2 + 10;
+const DESCENT_FIRST_MS = 1800;
+const DESCENT_NEXT_MS = 600;
+const DESCENT_REDUCE_MS = 250;
+const DESCENT_BG_EASE = 2.3;
 
-function SuggestionScreen({ next, onTooHard, onAnother, onSkip, onExit, task, stepIndex, steps, energy, loading, deferredNote, onDismissDeferNote }) {
-  const isDark = useContext(IsDarkContext);
-  const step = steps[stepIndex] || steps[0];
-  const total = steps.length || 1;
-  const stepReady = !loading && steps.length > 0 && !!step?.text;
-  const pct = stepReady ? ((stepIndex + 1) / total) * 100 : 0;
-  const taskLabel = task.length > 18 ? task.slice(0, 16) + "…" : task.toUpperCase();
-  const fadeBelow = (delayMs) =>
-    `opacity ${SUGGESTION_FADE_MS}ms ease ${delayMs}ms`;
+function descentBgProgress(rawT, reducedMotion) {
+  return reducedMotion ? rawT : Math.pow(Math.min(1, Math.max(0, rawT)), DESCENT_BG_EASE);
+}
+
+function descentMoteProgress(rawT, reducedMotion) {
+  if (reducedMotion) return rawT >= 1 ? 1 : 0;
+  return Math.min(1, Math.max(0, rawT));
+}
+
+function vesselAssemblyFromProgress(progress) {
+  const p = Math.min(1, Math.max(0, progress));
+  const ringAlpha = Math.min(1, Math.max(0, (p - 0.03) / 0.5));
+  const fillT = Math.min(1, Math.max(0, (p - 0.04) / 0.72));
+  const fillAlpha = fillT * fillT * (3 - 2 * fillT);
+  const fillRadius = 0.05 + 0.95 * fillT;
+  return { ringAlpha, fillAlpha, fillRadius };
+}
+
+function drawAssemblingVessel(ctx, { cx, cy, R, fp, progress }) {
+  const { ringAlpha, fillAlpha, fillRadius } = vesselAssemblyFromProgress(progress);
+  if (fillAlpha > 0.008) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    ctx.clip();
+    const rFill = R * fillRadius;
+    const dome = ctx.createRadialGradient(cx, cy, 0, cx, cy, rFill);
+    dome.addColorStop(0, `rgba(${fp.domeCenter[0]},${fp.domeCenter[1]},${fp.domeCenter[2]},${fillAlpha})`);
+    dome.addColorStop(0.68, `rgba(${fp.domeEdge[0]},${fp.domeEdge[1]},${fp.domeEdge[2]},${fillAlpha * 0.92})`);
+    dome.addColorStop(1, `rgba(${fp.domeEdge[0]},${fp.domeEdge[1]},${fp.domeEdge[2]},${fillAlpha * 0.72})`);
+    ctx.beginPath();
+    ctx.arc(cx, cy, rFill, 0, Math.PI * 2);
+    ctx.fillStyle = dome;
+    ctx.fill();
+    ctx.restore();
+  }
+  if (ringAlpha > 0.02) {
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(${fp.ring[0]},${fp.ring[1]},${fp.ring[2]},${ringAlpha})`;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+}
+
+const DESCENT_TEXT_SHADOW = "0 1px 14px rgba(0,0,0,0.38), 0 0 2px rgba(0,0,0,0.28)";
+
+function spawnGatherers(quick = false) {
+  const arr = [];
+  const W = GATHER_CANVAS_W;
+  const H = GATHER_CANVAS_H;
+  const count = quick ? 42 : 78;
+  const delayMax = quick ? 0.24 : 0.95;
+  const durBase = quick ? 0.44 : 1.05;
+  const durRange = quick ? 0.3 : 0.55;
+  const curveSpread = quick ? 70 : 100;
+  for (let i = 0; i < count; i++) {
+    const edge = Math.floor(Math.random() * 4);
+    let x;
+    let y;
+    if (edge === 0) { x = Math.random() * W; y = -20 - Math.random() * 40; }
+    else if (edge === 1) { x = W + 20 + Math.random() * 40; y = Math.random() * H; }
+    else if (edge === 2) { x = Math.random() * W; y = H + 20 + Math.random() * 40; }
+    else { x = -20 - Math.random() * 40; y = Math.random() * H; }
+    const targetAngle = (i / count) * Math.PI * 2 + (Math.random() - 0.5) * 0.35;
+    arr.push({
+      x, y,
+      tx: GATHER_CIRCLE_CX + Math.cos(targetAngle) * GATHER_CIRCLE_R,
+      ty: GATHER_CIRCLE_CY + Math.sin(targetAngle) * GATHER_CIRCLE_R,
+      delay: Math.random() * delayMax,
+      dur: durBase + Math.random() * durRange,
+      size: 1.6 + Math.random() * 2.8,
+      curve: (Math.random() - 0.5) * curveSpread,
+      arrived: false,
+    });
+  }
+  return arr;
+}
+
+function spawnDescentGatherers(quick = false) {
+  return spawnGatherers(quick);
+}
+
+function drawGatherMotes(ctx, gatherers, {
+  moteSince,
+  landBoost,
+  fp,
+  a,
+  easeInOut,
+  fadeArrived = true,
+}) {
+  let arrivedCount = 0;
+  let progressSum = 0;
+  for (const g of gatherers) {
+    const k = Math.min(1, Math.max(0, ((moteSince - g.delay) / g.dur) * landBoost));
+    if (k >= 1) {
+      g.arrived = true;
+      arrivedCount++;
+      progressSum += 1;
+      ctx.beginPath();
+      ctx.arc(g.tx, g.ty, g.size * 0.5, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${fp.mote[0]},${fp.mote[1]},${fp.mote[2]},${a.gatherAlphaMin + a.gatherAlphaRange * 0.85})`;
+      ctx.fill();
+      continue;
+    }
+    if (k <= 0) {
+      progressSum += 0.04;
+      ctx.beginPath();
+      ctx.arc(g.x, g.y, g.size * 0.7, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${fp.mote[0]},${fp.mote[1]},${fp.mote[2]},${a.gatherIdle})`;
+      ctx.fill();
+      continue;
+    }
+    progressSum += k;
+    const e = easeInOut(k);
+    const mx = (g.x + g.tx) / 2 + g.curve * Math.sin(Math.PI * 0.5);
+    const my = (g.y + g.ty) / 2 + g.curve * 0.6;
+    const x = (1 - e) * (1 - e) * g.x + 2 * (1 - e) * e * mx + e * e * g.tx;
+    const y = (1 - e) * (1 - e) * g.y + 2 * (1 - e) * e * my + e * e * g.ty;
+    const mergeFade = fadeArrived ? Math.max(0, 1 - Math.max(0, k - 0.82) / 0.18) : 1;
+    const alpha = (a.gatherAlphaMin + e * a.gatherAlphaRange) * mergeFade;
+    if (alpha <= 0.004) continue;
+    ctx.beginPath();
+    ctx.arc(x, y, g.size * (0.6 + e * 0.4), 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${fp.mote[0]},${fp.mote[1]},${fp.mote[2]},${alpha})`;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x, y, g.size * 2.4, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${fp.mote[0]},${fp.mote[1]},${fp.mote[2]},${alpha * a.gatherGlow})`;
+    ctx.fill();
+  }
+  const coverage = gatherers.length ? progressSum / gatherers.length : 1;
+  return { arrivedCount, coverage };
+}
+
+function StepTextBridge({ text, focusPalette, isDark }) {
+  if (!text) return null;
+  const fp = focusPalette || focusPaletteForHour();
+  const theme = getGatherTheme(isDark);
   return (
-    <>
+    <div
+      aria-hidden
+      style={{
+        ...GATHER_SLOT_FIXED_STYLE,
+        pointerEvents: "none",
+        zIndex: 10003,
+      }}
+    >
+      <p style={{
+        ...gatherTaskTextStyle(text, theme),
+        color: `rgb(${fp.vesselText[0]}, ${fp.vesselText[1]}, ${fp.vesselText[2]})`,
+        textShadow: DESCENT_TEXT_SHADOW,
+      }}>
+        {text}
+      </p>
+    </div>
+  );
+}
+
+function DescentOverlay({ descent, onComplete, onShellBg, isDark }) {
+  const bgRef = useRef(null);
+  const canvasRef = useRef(null);
+  const gatherersRef = useRef([]);
+  const circleAlphaRef = useRef(0);
+  const startRef = useRef(performance.now());
+  const doneRef = useRef(false);
+  const onCompleteRef = useRef(onComplete);
+  const onShellBgRef = useRef(onShellBg);
+  onCompleteRef.current = onComplete;
+  onShellBgRef.current = onShellBg;
+
+  const reducedMotion = typeof window !== "undefined"
+    && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const quick = descent.sessionStepCount > 0;
+  const durationMs = reducedMotion
+    ? DESCENT_REDUCE_MS
+    : (quick ? DESCENT_NEXT_MS : DESCENT_FIRST_MS);
+  const theme = getGatherTheme(isDark);
+  const { text, homePalette, focusPalette } = descent;
+
+  useEffect(() => {
+    gatherersRef.current = reducedMotion ? [] : spawnDescentGatherers(quick);
+    circleAlphaRef.current = 0;
+    startRef.current = performance.now();
+    doneRef.current = false;
+
+    const canvas = canvasRef.current;
+    const bg = bgRef.current;
+    if (!canvas || !bg) return;
+
+    const ctx = canvas.getContext("2d");
+    const DPR = Math.min(window.devicePixelRatio || 1, 2);
+    const W = GATHER_CANVAS_W;
+    const H = GATHER_CANVAS_H;
+    const cx = GATHER_CIRCLE_CX;
+    const cy = GATHER_CIRCLE_CY;
+    const baseR = GATHER_CIRCLE_R;
+    const lerp = (a, b, k) => a + (b - a) * k;
+    const easeInOut = (k) => k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+    const fp = focusPalette;
+    const sky = homePalette.sky;
+    const ocean = homePalette.ocean;
+
+    canvas.width = W * DPR;
+    canvas.height = H * DPR;
+    canvas.style.width = "100%";
+    canvas.style.height = "100%";
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+    let raf;
+
+    const draw = (now) => {
+      const elapsed = now - startRef.current;
+      const rawT = Math.min(1, elapsed / durationMs);
+      const bgT = descentBgProgress(rawT, reducedMotion);
+      const motePhase = descentMoteProgress(rawT, reducedMotion);
+      const bgRgb = sky.map((v, i) => Math.round(v + (ocean[i] - v) * bgT));
+      bg.style.backgroundColor = `rgb(${bgRgb[0]}, ${bgRgb[1]}, ${bgRgb[2]})`;
+      onShellBgRef.current?.(bgRgb);
+
+      ctx.clearRect(0, 0, W, H);
+
+      const moteSince = elapsed / 1000;
+      const a = theme.a;
+      const breathe = reducedMotion ? 0.5 : Math.min(1, moteSince / (quick ? 0.45 : 1.2));
+      let gatherCoverage = circleAlphaRef.current;
+
+      if (!reducedMotion && motePhase > 0 && gatherersRef.current.length) {
+        const landBoost = quick
+          ? (rawT < 1 ? Math.max(0.62, 1.05 / (1 + moteSince * 0.28)) : 1.9)
+          : (rawT < 1 ? Math.max(0.32, 0.78 / (1 + moteSince * 0.14)) : 1.75);
+        const { coverage } = drawGatherMotes(ctx, gatherersRef.current, {
+          moteSince,
+          landBoost,
+          fp,
+          a,
+          easeInOut,
+        });
+        gatherCoverage = Math.max(circleAlphaRef.current, coverage);
+        const rawTarget = gatherersRef.current.length ? coverage : 1;
+        const cap = rawT < (quick ? 0.88 : 0.92) ? (quick ? 0.78 : 0.72) : 1;
+        const target = Math.min(rawTarget, cap);
+        const alphaSpeed = quick
+          ? (rawT < 1 ? Math.max(0.035, 0.07 / (1 + moteSince * 0.1)) : 0.16)
+          : (rawT < 1 ? Math.max(0.018, 0.042 / (1 + moteSince * 0.08)) : 0.1);
+        circleAlphaRef.current = lerp(circleAlphaRef.current, target * motePhase, alphaSpeed);
+      } else if (reducedMotion) {
+        circleAlphaRef.current = rawT >= 1 ? 1 : 0;
+      }
+
+      if (rawT >= 1) {
+        circleAlphaRef.current = 1;
+        gatherCoverage = 1;
+      }
+
+      const assembly = circleAlphaRef.current;
+      gatherCoverage = Math.max(assembly, gatherCoverage);
+      const R = baseR;
+      const maxGlowR = gatherGlowMaxR(cx, cy, W, H);
+      const haloGate = gatherCoverage;
+
+      {
+        const [pr, pg, pb] = fp.pulse;
+        const peak = (a.haloBase + breathe * a.haloBreathe) * haloGate;
+        const haloR = Math.min(R + 52, maxGlowR);
+        if (haloR > R + 4 && peak > 0.002) {
+          const halo = ctx.createRadialGradient(cx, cy, R * 0.55, cx, cy, haloR);
+          halo.addColorStop(0, `rgba(${pr},${pg},${pb},${peak})`);
+          halo.addColorStop(0.55, `rgba(${pr},${pg},${pb},${a.haloMid * haloGate})`);
+          halo.addColorStop(0.82, `rgba(${pr},${pg},${pb},${a.haloMid * haloGate * 0.35})`);
+          halo.addColorStop(1, "rgba(0,0,0,0)");
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(cx, cy, haloR, 0, Math.PI * 2);
+          ctx.arc(cx, cy, R, 0, Math.PI * 2, true);
+          ctx.clip();
+          ctx.beginPath();
+          ctx.arc(cx, cy, haloR, 0, Math.PI * 2);
+          ctx.fillStyle = halo;
+          ctx.fill();
+          ctx.restore();
+        }
+      }
+
+      drawAssemblingVessel(ctx, { cx, cy, R, fp, progress: gatherCoverage });
+
+      if (rawT >= 1 && !doneRef.current) {
+        doneRef.current = true;
+        onCompleteRef.current(focusPalette);
+        return;
+      }
+
+      raf = requestAnimationFrame(draw);
+    };
+
+    raf = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(raf);
+  }, [descent.sessionStepCount, durationMs, reducedMotion, quick, focusPalette, homePalette]);
+
+  return (
+    <div
+      aria-hidden
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 10000,
+        pointerEvents: "none",
+      }}
+    >
+      <div
+        ref={bgRef}
+        style={{
+          position: "absolute",
+          inset: 0,
+          backgroundColor: `rgb(${homePalette.sky[0]}, ${homePalette.sky[1]}, ${homePalette.sky[2]})`,
+        }}
+      />
+      <div style={{ ...GATHER_SLOT_FIXED_STYLE, zIndex: 1 }}>
+        <canvas ref={canvasRef} style={{ display: "block", width: "100%", height: "100%" }} />
+      </div>
+      <StepTextBridge
+        text={text}
+        focusPalette={focusPalette}
+        isDark={isDark}
+      />
+    </div>
+  );
+}
+
+function SuggestionScreen({
+  onConfirm,
+  onStartDescent,
+  onTooHard,
+  onAnother,
+  onSkip,
+  onExit,
+  task,
+  stepIndex,
+  steps,
+  energy,
+  loading,
+  deferredNote,
+  onDismissDeferNote,
+  sessionStepCount,
+  isDescentActive,
+}) {
+  const isDark = useContext(IsDarkContext);
+  const stepTextRef = useRef(null);
+
+  const [palette, setPalette] = useState(() => homePaletteForHour());
+
+  useEffect(() => {
+    const tick = () => setPalette(homePaletteForHour());
+    tick();
+    const id = setInterval(tick, 60000);
+    return () => clearInterval(id);
+  }, []);
+
+  const step = steps[stepIndex] || steps[0];
+  const stepReady = !loading && steps.length > 0 && !!step?.text;
+  const skyInk = homeSkyInk(palette);
+  const focusFp = focusPaletteForHour();
+  const stepTextRgb = `rgb(${focusFp.vesselText[0]}, ${focusFp.vesselText[1]}, ${focusFp.vesselText[2]})`;
+  const action = homeActionColor();
+  const theme = getGatherTheme(isDark);
+  const serifRgb = `rgb(${skyInk.ink[0]}, ${skyInk.ink[1]}, ${skyInk.ink[2]})`;
+  const serifMuted = `rgba(${skyInk.ink[0]}, ${skyInk.ink[1]}, ${skyInk.ink[2]}, 0.55)`;
+  const serifGhost = `rgba(${skyInk.ink[0]}, ${skyInk.ink[1]}, ${skyInk.ink[2]}, 0.6)`;
+  const serifBorder = `rgba(${skyInk.ink[0]}, ${skyInk.ink[1]}, ${skyInk.ink[2]}, 0.15)`;
+  const shadowRest = `0 4px 16px rgba(${action[0]},${action[1]},${action[2]},0.35)`;
+  const minsLabel = step?.mins ? `${step.mins} min` : "";
+  const uiVisible = stepReady && !isDescentActive;
+
+  const beginDescent = () => {
+    if (!stepReady || isDescentActive || !onStartDescent) return;
+    onStartDescent({
+      text: step.text,
+      homePalette: palette,
+      focusPalette: focusPaletteForHour(),
+      sessionStepCount,
+    });
+  };
+
+  return (
+    <div
+      style={{
+        position: "absolute",
+        inset: 0,
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+      }}
+    >
+      <div
+        aria-hidden
+        style={{
+          position: "absolute",
+          inset: 0,
+          backgroundColor: `rgb(${palette.sky[0]}, ${palette.sky[1]}, ${palette.sky[2]})`,
+        }}
+      />
+
       {deferredNote ? (
         <div style={{
+          position: "relative",
+          zIndex: 3,
           display: "flex", alignItems: "flex-start", gap: 10,
           background: C.warning100, borderRadius: 12, padding: "12px 14px",
-          marginBottom: 12,
+          margin: "16px 28px 0",
         }}>
           <div style={{ ...T.small, color: C.warning500, flex: 1, lineHeight: 1.4 }}>
             Prep needed: {deferredNote}
           </div>
-          <button onClick={onDismissDeferNote} style={{
+          <button onClick={onDismissDeferNote} type="button" style={{
             background: "none", border: "none", color: C.neutral300,
             fontSize: 18, cursor: "pointer", padding: 0, lineHeight: 1, fontFamily: "Inter",
           }}>✕</button>
         </div>
       ) : null}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-        <Label style={{ margin: 0 }}>Your One Thing</Label>
-        <button onClick={onExit} style={{
-          background: "none", border: "none", cursor: "pointer",
-          color: C.neutral300, padding: 4, lineHeight: 1,
-          fontSize: 20, fontFamily: "Inter",
-        }}>✕</button>
+
+      <div style={{
+        ...GATHER_SLOT_FIXED_STYLE,
+        zIndex: 2,
+      }}>
+        <div style={{
+          position: "absolute",
+          top: 10,
+          left: 0,
+          right: 0,
+          opacity: uiVisible && minsLabel ? 1 : 0,
+          transition: "opacity 300ms ease",
+          fontFamily: "'DM Serif Display', Georgia, serif",
+          fontSize: 15,
+          fontWeight: 400,
+          letterSpacing: "0.04em",
+          color: serifMuted,
+          textAlign: "center",
+          pointerEvents: "none",
+        }}>
+          {minsLabel || "\u00a0"}
+        </div>
+        <p
+          ref={stepTextRef}
+          style={{
+            ...gatherTaskTextStyle(step?.text, theme),
+            color: stepReady ? stepTextRgb : serifMuted,
+            textShadow: stepReady ? DESCENT_TEXT_SHADOW : "none",
+            visibility: isDescentActive ? "hidden" : "visible",
+            opacity: stepReady ? 1 : 0.45,
+          }}
+        >
+          {stepReady ? (step?.text ?? "") : "Finding your step…"}
+        </p>
       </div>
 
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", minHeight: 0 }}>
-        <div style={{ width: "100%" }}>
-          <div style={{
-            position: "relative",
-            minHeight: SUGGESTION_CARD_SLOT_MIN_H,
-            marginBottom: 28,
-          }}>
-            <div style={{
-              position: "absolute",
-              inset: 0,
-              opacity: stepReady ? 0 : 1,
-              transition: `opacity ${SUGGESTION_FADE_MS}ms ease`,
-              pointerEvents: "none",
-            }}>
-              <LoadingStepCard />
-            </div>
-            <div style={{
-              opacity: stepReady ? 1 : 0,
-              transition: `opacity ${SUGGESTION_FADE_MS}ms ease`,
-              pointerEvents: stepReady ? "auto" : "none",
-            }}>
-              <Card style={{
-                marginBottom: 0,
-                background: isDark ? "#2D2A45" : "linear-gradient(145deg, #FDFCF9 0%, #F5F0FF 60%, #FDF8F0 100%)",
-                boxShadow: "0 2px 8px rgba(100,90,180,0.08), 0 16px 48px rgba(100,90,180,0.08)",
-                border: isDark ? "1px solid rgba(124,111,205,0.2)" : "1px solid rgba(124,111,205,0.12)",
-              }}>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16, alignItems: "center" }}>
-                  <span style={{ ...T.label, color: C.accent500 }}>{taskLabel}</span>
-                  <span style={{ color: C.accent200 }}>•</span>
-                  <span style={{ ...T.label, color: C.accent500 }}>{step?.mins ?? 0} MIN</span>
-                  <span style={{ color: C.accent200 }}>•</span>
-                  <span style={{ ...T.label, color: C.accent500 }}>{energy.toUpperCase()} ENERGY</span>
-                </div>
-                <div style={{ ...T.subtitle, color: "var(--n9)", fontWeight: 700, marginBottom: 20 }}>{step?.text ?? ""}</div>
-                <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
-                  {(step?.tags ?? []).map((t, i) => <Tag key={t} label={t} green={i === 1 || t === "no prep needed"} />)}
-                </div>
-              </Card>
-            </div>
-          </div>
-
-          <div style={{
-            height: SUGGESTION_PROGRESS_H,
-            opacity: stepReady ? 1 : 0,
-            transition: fadeBelow(SUGGESTION_STAGGER_MS),
-            pointerEvents: stepReady ? "auto" : "none",
-          }}>
-            <div style={{ marginBottom: 6 }}>
-              <div style={{ height: 4, borderRadius: 4, background: C.neutral200, overflow: "hidden" }}>
-                <div style={{
-                  height: "100%",
-                  width: `${pct}%`,
-                  background: C.accent500,
-                  borderRadius: 4,
-                  transition: stepReady ? "width 0.4s ease" : "none",
-                }} />
-              </div>
-            </div>
-            <div style={{ ...T.hint, fontSize: 14, textAlign: "right" }}>
-              step {stepIndex + 1} of {total}
-            </div>
-          </div>
-
-          <div style={{
-            height: SUGGESTION_SEE_ALL_H,
-            display: "flex",
-            alignItems: "flex-start",
-            justifyContent: "center",
-            opacity: stepReady ? 1 : 0,
-            transition: fadeBelow(SUGGESTION_STAGGER_MS + 50),
-            pointerEvents: stepReady ? "auto" : "none",
-          }}>
-            <button
-              type="button"
-              onClick={onAnother}
-              tabIndex={stepReady ? 0 : -1}
-              aria-hidden={!stepReady}
-              style={{
-                background: "none", border: "none", color: C.accent500,
-                ...T.hint, fontSize: 14, cursor: "pointer",
-                fontFamily: "Inter", textDecoration: "underline",
-                padding: 0, display: "flex", alignItems: "center",
-                gap: 6,
-              }}
-            >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
-                <rect x="1" y="1" width="12" height="3" rx="1" fill={C.accent500} fillOpacity="0.4"/>
-                <rect x="1" y="5.5" width="12" height="3" rx="1" fill={C.accent500} fillOpacity="0.7"/>
-                <rect x="1" y="10" width="12" height="3" rx="1" fill={C.accent500}/>
-              </svg>
-              see all steps
-            </button>
-          </div>
-
-          <div style={{
-            height: SUGGESTION_ACTIONS_H,
-            display: "flex",
-            flexDirection: "column",
-            gap: 10,
-            opacity: stepReady ? 1 : 0,
-            transition: fadeBelow(SUGGESTION_STAGGER_MS + 100),
-            pointerEvents: stepReady ? "auto" : "none",
-          }}>
-            <BtnPrimary onClick={next} disabled={!stepReady}>I can do that</BtnPrimary>
-            <div style={{ display: "flex", gap: 10 }}>
-              <BtnAccent onClick={onTooHard}>Too hard</BtnAccent>
-              <BtnAccent onClick={onAnother}>Another</BtnAccent>
-            </div>
-          </div>
+      <div style={{
+        position: "fixed",
+        left: SCREEN_H_PAD,
+        right: SCREEN_H_PAD,
+        bottom: "max(40px, env(safe-area-inset-bottom))",
+        maxWidth: GATHER_CANVAS_W,
+        margin: "0 auto",
+        zIndex: 2,
+        display: "flex",
+        flexDirection: "column",
+        gap: 12,
+        opacity: uiVisible ? 1 : 0,
+        pointerEvents: uiVisible ? "auto" : "none",
+        transition: "opacity 280ms ease",
+        boxSizing: "border-box",
+      }}>
+        <button
+          type="button"
+          onClick={beginDescent}
+          disabled={!stepReady}
+          style={{
+            width: "100%",
+            border: "none",
+            borderRadius: 999,
+            padding: "17px 20px",
+            lineHeight: 1.4,
+            fontFamily: "Inter, sans-serif",
+            fontSize: 16.5,
+            fontWeight: 700,
+            cursor: stepReady ? "pointer" : "default",
+            color: C.neutral50,
+            background: `rgb(${action[0]}, ${action[1]}, ${action[2]})`,
+            boxShadow: shadowRest,
+            opacity: stepReady ? 1 : 0.5,
+          }}
+        >
+          I can do that
+        </button>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button
+            type="button"
+            onClick={onTooHard}
+            disabled={!stepReady}
+            style={{
+              flex: 1,
+              background: "transparent",
+              border: `1px solid ${serifBorder}`,
+              borderRadius: 999,
+              padding: "14px 12px",
+              lineHeight: 1.4,
+              fontFamily: "Inter, sans-serif",
+              fontSize: 15,
+              fontWeight: 600,
+              cursor: stepReady ? "pointer" : "default",
+              color: serifGhost,
+              opacity: stepReady ? 1 : 0.5,
+            }}
+          >
+            Smaller, please
+          </button>
+          <button
+            type="button"
+            onClick={onAnother}
+            disabled={!stepReady}
+            style={{
+              flex: 1,
+              background: "transparent",
+              border: `1px solid ${serifBorder}`,
+              borderRadius: 999,
+              padding: "14px 12px",
+              lineHeight: 1.4,
+              fontFamily: "Inter, sans-serif",
+              fontSize: 15,
+              fontWeight: 600,
+              cursor: stepReady ? "pointer" : "default",
+              color: serifGhost,
+              opacity: stepReady ? 1 : 0.5,
+            }}
+          >
+            Different idea
+          </button>
         </div>
       </div>
-    </>
+    </div>
   );
 }
 
@@ -1086,10 +1479,30 @@ const GATHER_CANVAS_H = 368;
 const GATHER_CIRCLE_CX = GATHER_CANVAS_W / 2;
 const GATHER_CIRCLE_CY = GATHER_CANVAS_H / 2;
 const GATHER_CIRCLE_R = 130;
+// Keep outer glow fully inside the canvas so the rectangular canvas edge never clips visible bloom.
+const gatherGlowMaxR = (cx = GATHER_CIRCLE_CX, cy = GATHER_CIRCLE_CY, W = GATHER_CANVAS_W, H = GATHER_CANVAS_H, pad = 10) =>
+  Math.min(cx, cy, W - cx, H - cy) - pad;
 const FOCUS_CAPTION_MIN_H = 52;
 const FOCUS_ACTIONS_H = BTN_H * 2 + 12;
 const GATHER_TEXT_WIDTH = Math.round(GATHER_CIRCLE_R * 2 * 0.80);
 const GATHER_TEXT_MAX_H = Math.round(GATHER_CIRCLE_R * 1.55);
+
+// Circle center sits at 40% viewport height on every gather screen (arrival
+// gathering → suggestion → descent → focus) so the vessel never jumps.
+const GATHER_VIEWPORT_CY_RATIO = 0.40;
+
+const GATHER_SLOT_FIXED_STYLE = {
+  position: "fixed",
+  left: "50%",
+  top: `${GATHER_VIEWPORT_CY_RATIO * 100}%`,
+  transform: "translate(-50%, -50%)",
+  width: `min(calc(100vw - 32px), ${GATHER_CANVAS_W}px)`,
+  aspectRatio: `${GATHER_CANVAS_W} / ${GATHER_CANVAS_H}`,
+  overflow: "visible",
+  zIndex: 2,
+};
+
+const GATHER_FIXED_CAPTION_TOP = `calc(${GATHER_VIEWPORT_CY_RATIO * 100}% + ${GATHER_CIRCLE_R}px + 40px)`;
 
 const GATHER_THEME = {
   light: {
@@ -1195,7 +1608,7 @@ const FOCUS_PALETTES = {
     domeCenter: [78, 113, 103], domeEdge: [55, 90, 80],
     waterStart: [220, 110, 90], waterEnd: [240, 195, 165],
     pulse: [220, 110, 90],
-    mote: [220, 110, 90],
+    mote: [245, 165, 140],
     bloom: [250, 240, 230],
     ring: [140, 175, 160],
     vesselText: [250, 245, 235],
@@ -1209,7 +1622,7 @@ const FOCUS_PALETTES = {
     domeCenter: [63, 51, 103], domeEdge: [40, 28, 80],
     waterStart: [195, 145, 170], waterEnd: [230, 195, 210],
     pulse: [195, 145, 170],
-    mote: [195, 145, 170],
+    mote: [225, 185, 205],
     bloom: [248, 245, 248],
     ring: [180, 160, 230],
     vesselText: [245, 240, 248],
@@ -1223,7 +1636,7 @@ const FOCUS_PALETTES = {
     domeCenter: [85, 75, 130], domeEdge: [60, 50, 95],
     waterStart: [124, 111, 205], waterEnd: [170, 150, 215],
     pulse: [124, 111, 205],
-    mote: [124, 111, 205],
+    mote: [165, 155, 230],
     bloom: [95, 191, 155],
     ring: [150, 140, 220],
     vesselText: [237, 234, 228],
@@ -1275,7 +1688,7 @@ function gatherTaskTextStyle(text, theme) {
   };
 }
 
-function GatherBloomCircle({ sessionId, stepText, loading, phase, onPhaseChange, onComplete, resourceLink, focusPalette }) {
+function GatherBloomCircle({ sessionId, stepText, loading, phase, onPhaseChange, onComplete, resourceLink, focusPalette, skipGatherIntro = false }) {
   const isDark = useContext(IsDarkContext);
   const theme = getGatherTheme(isDark);
   const themeRef = useRef(theme);
@@ -1314,7 +1727,25 @@ function GatherBloomCircle({ sessionId, stepText, loading, phase, onPhaseChange,
     }
   }, []);
 
+  const skipGatherIntroRef = useRef(skipGatherIntro);
+  skipGatherIntroRef.current = skipGatherIntro;
+
   const resetGatherAnimation = useCallback(() => {
+    if (skipGatherIntroRef.current) {
+      phaseRef.current = "focus";
+      phaseStart.current = performance.now();
+      focusTriggered.current = true;
+      completeFired.current = false;
+      completeFiredSession.current = null;
+      hold.current = { active: false, value: 0 };
+      bloomers.current = [];
+      colorMix.current = 0;
+      circleAlpha.current = 1;
+      gatherers.current = [];
+      onPhaseChangeRef.current("focus");
+      setRunId(r => r + 1);
+      return;
+    }
     onPhaseChangeRef.current("loading");
     phaseRef.current = "loading";
     phaseStart.current = performance.now();
@@ -1349,28 +1780,7 @@ function GatherBloomCircle({ sessionId, stepText, loading, phase, onPhaseChange,
 
   const spawnGather = () => {
     if (reduceMotion.current) { gatherers.current = []; return; }
-    const arr = [];
-    const W = GATHER_CANVAS_W, H = GATHER_CANVAS_H;
-    for (let i = 0; i < 44; i++) {
-      const edge = Math.floor(Math.random() * 4);
-      let x, y;
-      if (edge === 0) { x = Math.random() * W; y = -20 - Math.random() * 40; }
-      else if (edge === 1) { x = W + 20 + Math.random() * 40; y = Math.random() * H; }
-      else if (edge === 2) { x = Math.random() * W; y = H + 20 + Math.random() * 40; }
-      else { x = -20 - Math.random() * 40; y = Math.random() * H; }
-      const targetAngle = Math.random() * Math.PI * 2;
-      arr.push({
-        x, y,
-        tx: GATHER_CIRCLE_CX + Math.cos(targetAngle) * GATHER_CIRCLE_R,
-        ty: GATHER_CIRCLE_CY + Math.sin(targetAngle) * GATHER_CIRCLE_R,
-        delay: Math.random() * 1.1,
-        dur: 1.2 + Math.random() * 0.7,
-        size: 1.8 + Math.random() * 3.0,
-        curve: (Math.random() - 0.5) * 120,
-        arrived: false,
-      });
-    }
-    gatherers.current = arr;
+    gatherers.current = spawnGatherers(false);
   };
 
   const spawnBloom = () => {
@@ -1470,36 +1880,46 @@ function GatherBloomCircle({ sessionId, stepText, loading, phase, onPhaseChange,
       {
         const [pr, pg, pb] = fp.pulse;
         const peak = (a.haloBase + breathe * a.haloBreathe) * haloGate;
-        const haloR = R + 52;
-        const halo = ctx.createRadialGradient(cx, cy, R * 0.55, cx, cy, haloR);
-        halo.addColorStop(0, `rgba(${pr},${pg},${pb},${peak})`);
-        halo.addColorStop(0.55, `rgba(${pr},${pg},${pb},${a.haloMid * haloGate})`);
-        halo.addColorStop(1, "rgba(0,0,0,0)");
-        ctx.beginPath();
-        ctx.arc(cx, cy, haloR, 0, Math.PI * 2);
-        ctx.fillStyle = halo;
-        ctx.fill();
+        const maxGlowR = gatherGlowMaxR(cx, cy, W, H);
+        const haloR = Math.min(R + 52, maxGlowR);
+        if (haloR > R + 4) {
+          const halo = ctx.createRadialGradient(cx, cy, R * 0.55, cx, cy, haloR);
+          halo.addColorStop(0, `rgba(${pr},${pg},${pb},${peak})`);
+          halo.addColorStop(0.55, `rgba(${pr},${pg},${pb},${a.haloMid * haloGate})`);
+          halo.addColorStop(0.82, `rgba(${pr},${pg},${pb},${a.haloMid * haloGate * 0.35})`);
+          halo.addColorStop(1, "rgba(0,0,0,0)");
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(cx, cy, haloR, 0, Math.PI * 2);
+          ctx.arc(cx, cy, R, 0, Math.PI * 2, true);
+          ctx.clip();
+          ctx.beginPath();
+          ctx.arc(cx, cy, haloR, 0, Math.PI * 2);
+          ctx.fillStyle = halo;
+          ctx.fill();
+          ctx.restore();
+        }
       }
 
-      // Hold bloom + completion bloom — radial brightening in the completion
-      // color, painted BEHIND the vessel via a rect-minus-circle clip so it
-      // never tints the disc, the water, or the inner dome. The completion
-      // wave radiates and fades out by ~1.4s, leaving a soft sustained halo.
+      // Hold bloom + completion bloom — annulus on the same canvas coords as the vessel
+      // so glow stays centered; radius capped so it fades before the canvas edge.
       {
         const [br, bgc, bb] = fp.bloom;
         const holdBloom = ph === "focus" ? hv * a.haloHold * 3.0 : 0;
         const completeWave = ph === "complete" ? Math.max(0, 1 - since / 1.4) : 0;
         const completeSteady = ph === "complete" ? 0.12 : 0;
-        const peak = (holdBloom + completeWave * 0.5 + completeSteady) * haloGate;
-        if (peak > 0.002) {
-          const bloomR = R + 52 + completeWave * 70;
+        const maxGlowR = gatherGlowMaxR(cx, cy, W, H);
+        const bloomR = Math.min(R + 52, maxGlowR);
+        const peak = (holdBloom + completeWave * 0.55 + completeSteady) * haloGate;
+        if (peak > 0.002 && bloomR > R + 4) {
           const g = ctx.createRadialGradient(cx, cy, R * 0.6, cx, cy, bloomR);
           g.addColorStop(0, `rgba(${br},${bgc},${bb},${peak})`);
-          g.addColorStop(0.5, `rgba(${br},${bgc},${bb},${peak * 0.35})`);
+          g.addColorStop(0.45, `rgba(${br},${bgc},${bb},${peak * 0.35})`);
+          g.addColorStop(0.78, `rgba(${br},${bgc},${bb},${peak * 0.08})`);
           g.addColorStop(1, "rgba(0,0,0,0)");
           ctx.save();
           ctx.beginPath();
-          ctx.rect(0, 0, W, H);
+          ctx.arc(cx, cy, bloomR, 0, Math.PI * 2);
           ctx.arc(cx, cy, R, 0, Math.PI * 2, true);
           ctx.clip();
           ctx.beginPath();
@@ -1510,39 +1930,22 @@ function GatherBloomCircle({ sessionId, stepText, loading, phase, onPhaseChange,
         }
       }
 
+      let gatherCoverage = 0;
       if (ph === "loading" && gatherers.current.length) {
-        let arrivedCount = 0;
         const stillLoading = loadingRef.current;
         const landBoost = stillLoading
           ? Math.max(0.28, 0.72 / (1 + since * 0.18))
           : 1.85;
-        for (const g of gatherers.current) {
-          const k = Math.min(1, Math.max(0, ((since - g.delay) / g.dur) * landBoost));
-          if (k >= 1) { g.arrived = true; arrivedCount++; continue; }
-          if (k <= 0) {
-            ctx.beginPath();
-            ctx.arc(g.x, g.y, g.size * 0.7, 0, Math.PI * 2);
-            ctx.fillStyle = `rgba(${fp.mote[0]},${fp.mote[1]},${fp.mote[2]},${a.gatherIdle})`;
-            ctx.fill();
-            continue;
-          }
-          const e = easeInOut(k);
-          const mx = (g.x + g.tx) / 2 + g.curve * Math.sin(Math.PI * 0.5);
-          const my = (g.y + g.ty) / 2 + g.curve * 0.6;
-          const x = (1 - e) * (1 - e) * g.x + 2 * (1 - e) * e * mx + e * e * g.tx;
-          const y = (1 - e) * (1 - e) * g.y + 2 * (1 - e) * e * my + e * e * g.ty;
-          const alpha = a.gatherAlphaMin + e * a.gatherAlphaRange;
-          ctx.beginPath();
-          ctx.arc(x, y, g.size * (0.6 + e * 0.4), 0, Math.PI * 2);
-          ctx.fillStyle = `rgba(${fp.mote[0]},${fp.mote[1]},${fp.mote[2]},${alpha})`;
-          ctx.fill();
-          ctx.beginPath();
-          ctx.arc(x, y, g.size * 2.4, 0, Math.PI * 2);
-          ctx.fillStyle = `rgba(${fp.mote[0]},${fp.mote[1]},${fp.mote[2]},${alpha * a.gatherGlow})`;
-          ctx.fill();
-        }
-        const rawTarget = gatherers.current.length ? arrivedCount / gatherers.current.length : 1;
-        const target = stillLoading ? Math.min(rawTarget, 0.82) : rawTarget;
+        const { coverage } = drawGatherMotes(ctx, gatherers.current, {
+          moteSince: since,
+          landBoost,
+          fp,
+          a,
+          easeInOut,
+          fadeArrived: false,
+        });
+        gatherCoverage = coverage;
+        const target = stillLoading ? Math.min(coverage, 0.82) : coverage;
         const alphaSpeed = stillLoading
           ? Math.max(0.025, 0.055 / (1 + since * 0.1))
           : 0.14;
@@ -1563,7 +1966,12 @@ function GatherBloomCircle({ sessionId, stepText, loading, phase, onPhaseChange,
       }
       const ca = circleAlpha.current;
 
-      if (ca > 0.02) {
+      if (ph === "loading" && gatherCoverage > 0.008) {
+        drawAssemblingVessel(ctx, {
+          cx, cy, R, fp,
+          progress: Math.max(ca, gatherCoverage),
+        });
+      } else if (ca > 0.02) {
         // Vessel disc — opaque inner dome gradient (static; does not change with hold).
         const dome = ctx.createRadialGradient(cx, cy, 0, cx, cy, R);
         dome.addColorStop(0, `rgba(${fp.domeCenter[0]},${fp.domeCenter[1]},${fp.domeCenter[2]},${ca})`);
@@ -1714,14 +2122,18 @@ function GatherBloomCircle({ sessionId, stepText, loading, phase, onPhaseChange,
 
   const showFocusText = phase === "focus" && !!stepText;
   const showLoadingHint = phase === "loading";
+  const textTransition = skipGatherIntro
+    ? "none"
+    : showFocusText
+    ? "opacity 600ms ease 300ms, transform 600ms ease 300ms"
+    : "opacity 600ms ease, transform 600ms ease";
 
   return (
     <div
       style={{
         position: "relative",
         width: "100%",
-        maxWidth: GATHER_CANVAS_W,
-        aspectRatio: `${GATHER_CANVAS_W} / ${GATHER_CANVAS_H}`,
+        height: "100%",
         touchAction: "none",
         cursor: phase === "focus" && !loading ? "pointer" : "default",
         WebkitUserSelect: "none",
@@ -1749,9 +2161,13 @@ function GatherBloomCircle({ sessionId, stepText, loading, phase, onPhaseChange,
         position: "absolute", inset: 0, pointerEvents: "none",
         opacity: showFocusText ? 1 : 0,
         transform: showFocusText ? "scale(1)" : "scale(0.97)",
-        transition: showFocusText ? "opacity 600ms ease 300ms, transform 600ms ease 300ms" : "opacity 600ms ease, transform 600ms ease",
+        transition: textTransition,
       }}>
-        <p style={{ ...gatherTaskTextStyle(displayText, theme), color: `rgb(${fp.vesselText[0]}, ${fp.vesselText[1]}, ${fp.vesselText[2]})` }}>{displayText}</p>
+        <p style={{
+          ...gatherTaskTextStyle(displayText, theme),
+          color: `rgb(${fp.vesselText[0]}, ${fp.vesselText[1]}, ${fp.vesselText[2]})`,
+          textShadow: DESCENT_TEXT_SHADOW,
+        }}>{displayText}</p>
         {resourceLink ? (
           <a
             href={resourceLink}
@@ -1799,7 +2215,7 @@ function inProgressShellBackground(isDark) {
     : "radial-gradient(ellipse at 50% 30%, #EEE9FF 0%, #F0EEF5 60%)";
 }
 
-function InProgressScreen({ gatherPhase, onGatherPhaseChange, onDone, onPause, onTooMuch, onDefer, onMore, onDoneForNow, step, resourceLink, stepsLoading, focusPalette }) {
+function InProgressScreen({ gatherPhase, onGatherPhaseChange, onDone, onPause, onTooMuch, onDefer, onMore, onDoneForNow, step, resourceLink, stepsLoading, focusPalette, skipGatherIntro = false }) {
   const isDark = useContext(IsDarkContext);
   const [showDeferInput, setShowDeferInput] = useState(false);
   const [deferDraft, setDeferDraft] = useState("");
@@ -1845,275 +2261,1009 @@ function InProgressScreen({ gatherPhase, onGatherPhaseChange, onDone, onPause, o
         >‖ Pause</button>
       </div>
 
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, width: "100%" }}>
-        <div style={{ flex: 1, minHeight: 0 }} />
-        <div style={{ width: "100%", flexShrink: 0, display: "flex", justifyContent: "center" }}>
-          <GatherBloomCircle
-            sessionId={gatherSessionId}
-            phase={gatherPhase}
-            onPhaseChange={onGatherPhaseChange}
-            stepText={step?.text}
-            loading={stepsLoading}
-            onComplete={onDone}
-            resourceLink={resourceLink}
-            focusPalette={fp}
-          />
-        </div>
-        <div style={{
-          flex: 1,
-          minHeight: FOCUS_CAPTION_MIN_H,
-          width: "100%",
-          position: "relative",
-        }}>
-          <div style={{
-            position: "absolute",
-            inset: 0,
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            textAlign: "center",
-            opacity: isComplete ? 0 : 1,
-            pointerEvents: "none",
-            transition: "opacity 300ms ease",
-          }}>
-            <div style={{
-              ...T.small, color: hintCol, fontWeight: 600, marginBottom: 6,
-            }}>
-              Take your time. No rush.
-            </div>
-            <div style={{ ...T.hint, color: hintCol }}>Press and hold the circle to finish.</div>
-          </div>
-          <div style={{
-            position: "absolute",
-            inset: 0,
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            textAlign: "center",
-            opacity: restReady ? 1 : 0,
-            pointerEvents: "none",
-            transition: "opacity 600ms ease",
-          }}>
-            <div style={{
-              fontFamily: "'DM Serif Display', serif",
-              fontSize: 23,
-              lineHeight: 1.2,
-              color: serifRgb,
-              marginBottom: 6,
-            }}>
-              Small step taken.
-            </div>
-            <div style={{ ...T.subtitle, color: serifMuted }}>That's real progress.</div>
-          </div>
-        </div>
-        <div style={{ position: "relative", flexShrink: 0, minHeight: FOCUS_ACTIONS_H }}>
-          <div style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 12,
-            visibility: isComplete ? "hidden" : "visible",
-            pointerEvents: isComplete ? "none" : "auto",
-          }}>
-            <BtnSecondary key="too-much" onClick={onTooMuch}>Too much?</BtnSecondary>
-            {showDeferInput ? (
-              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 4 }}>
-                <div style={{ ...T.small, color: "var(--n7)" }}>What do you need first?</div>
-                <input
-                  className="nudge-defer-input"
-                  value={deferDraft}
-                  onChange={e => setDeferDraft(e.target.value)}
-                  placeholder="e.g. find the right document"
-                  style={{
-                    border: `1.5px solid ${C.accent500}`, borderRadius: 12,
-                    padding: "12px 14px", width: "100%", boxSizing: "border-box",
-                    ...T.body, fontFamily: "Inter", color: "var(--n9)",
-                    background: isDark ? "#2D2A45" : C.neutral50,
-                  }}
-                />
-                <style>{`.nudge-defer-input::placeholder { color: ${C.neutral300}; opacity: 1; }`}</style>
-                <BtnPrimary onClick={() => deferDraft.trim() && onDefer(deferDraft.trim())}>Save & come back</BtnPrimary>
-              </div>
-            ) : (
-              <BtnSecondary key="not-ready" onClick={() => setShowDeferInput(true)}>Not ready yet</BtnSecondary>
-            )}
-          </div>
-          <div style={{
-            position: "absolute",
-            inset: 0,
-            display: "flex",
-            flexDirection: "column",
-            gap: 12,
-            opacity: restReady ? 1 : 0,
-            pointerEvents: isComplete ? "auto" : "none",
-            transition: "opacity 600ms ease",
-          }}>
-            <BtnPrimary onClick={onMore}>One more thing</BtnPrimary>
-            <BtnSecondary onClick={onDoneForNow}>I'm done now</BtnSecondary>
-          </div>
-        </div>
-      </div>
-    </>
-  );
-}
-
-const SIMPLIFY_TOTAL_MS = 1200;
-const SIMPLIFY_ASIDE_START_MS = 180;
-const SIMPLIFY_ASIDE_MS = 420;
-const SIMPLIFY_HERO_START_MS = 420;
-const SIMPLIFY_HERO_MS = 520;
-const SIMPLIFY_BUTTONS_START_MS = 820;
-const SIMPLIFY_BUTTONS_STAGGER_MS = 110;
-const SIMPLIFY_BUTTONS_MS = 440;
-const SIMPLIFY_HERO_PAD = 26;
-
-function simplifyClamp(v, lo = 0, hi = 1) {
-  return Math.max(lo, Math.min(hi, v));
-}
-
-function simplifyLerp(a, b, t) {
-  return a + (b - a) * t;
-}
-
-function simplifyEaseOutQuart(t) {
-  return 1 - Math.pow(1 - t, 4);
-}
-
-function SimplifyScreen({ next, onStillTooMuch, step }) {
-  const isDark = useContext(IsDarkContext);
-  const reducedMotion = typeof window !== "undefined"
-    && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const [progress, setProgress] = useState(reducedMotion ? 1 : 0);
-  const originalText = step?.text ?? "";
-  const smallerText = step?.tooHard ?? "";
-
-  useEffect(() => {
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      setProgress(1);
-      return;
-    }
-    setProgress(0);
-    const start = performance.now();
-    let raf = 0;
-    const tick = (now) => {
-      const p = simplifyClamp((now - start) / SIMPLIFY_TOTAL_MS);
-      setProgress(p);
-      if (p < 1) raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [originalText]);
-
-  const elapsed = progress * SIMPLIFY_TOTAL_MS;
-  const asideT = simplifyEaseOutQuart(
-    simplifyClamp((elapsed - SIMPLIFY_ASIDE_START_MS) / SIMPLIFY_ASIDE_MS)
-  );
-  const heroT = simplifyEaseOutQuart(
-    simplifyClamp((elapsed - SIMPLIFY_HERO_START_MS) / SIMPLIFY_HERO_MS)
-  );
-  const primaryBtnT = simplifyEaseOutQuart(
-    simplifyClamp((elapsed - SIMPLIFY_BUTTONS_START_MS) / SIMPLIFY_BUTTONS_MS)
-  );
-  const secondaryBtnT = simplifyEaseOutQuart(
-    simplifyClamp((elapsed - SIMPLIFY_BUTTONS_START_MS - SIMPLIFY_BUTTONS_STAGGER_MS) / SIMPLIFY_BUTTONS_MS)
-  );
-
-  const asideColor = isDark ? "rgba(240,238,248,0.5)" : "rgba(42,39,47,0.5)";
-  const heroBg = isDark ? "#1A2D24" : C.neutral50;
-  const heroBorder = isDark ? "rgba(111,208,172,0.48)" : "rgba(107,191,154,0.42)";
-  const heroGlow = isDark
-    ? "0 8px 40px rgba(111,208,172,0.16), 0 0 48px rgba(111,208,172,0.08)"
-    : "0 8px 36px rgba(107,191,154,0.14), 0 0 44px rgba(95,191,155,0.07)";
-
-  return (
-    <>
-      <div style={{ marginBottom: 28, flexShrink: 0 }}>
-        <Label color={C.warning500}>Let's Simplify</Label>
-        <div style={{ ...T.heading, fontFamily: "'DM Serif Display', serif", color: "var(--n9)", marginBottom: 8 }}>That one felt like too much?</div>
-        <div style={{ ...T.small, color: "var(--n7)", marginBottom: 0 }}>No problem. Here's something smaller.</div>
+      <div style={GATHER_SLOT_FIXED_STYLE}>
+        <GatherBloomCircle
+          sessionId={gatherSessionId}
+          phase={gatherPhase}
+          onPhaseChange={onGatherPhaseChange}
+          stepText={step?.text}
+          loading={stepsLoading}
+          onComplete={onDone}
+          resourceLink={resourceLink}
+          focusPalette={fp}
+          skipGatherIntro={skipGatherIntro}
+        />
       </div>
 
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, width: "100%" }}>
-        <div style={{ flex: 1, minHeight: 0 }} />
+      <div style={{
+        position: "fixed",
+        top: GATHER_FIXED_CAPTION_TOP,
+        left: SCREEN_H_PAD,
+        right: SCREEN_H_PAD,
+        minHeight: FOCUS_CAPTION_MIN_H,
+        zIndex: 2,
+        pointerEvents: "none",
+      }}>
         <div style={{
-          width: "100%",
-          maxWidth: GATHER_CANVAS_W,
-          margin: "0 auto",
-          flexShrink: 0,
+          position: "absolute",
+          inset: 0,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          textAlign: "center",
+          opacity: isComplete ? 0 : 1,
+          transition: "opacity 300ms ease",
         }}>
-          <p style={{
-            margin: "0 0 36px",
-            fontFamily: "Inter",
-            fontSize: 14,
-            fontWeight: 400,
-            fontStyle: "italic",
-            lineHeight: 1.55,
-            color: asideColor,
-            textAlign: "center",
-            opacity: asideT,
-            transform: `translateY(${simplifyLerp(6, 0, asideT)}px)`,
-          }}>
-            instead of{" "}
-            <span style={{
-              textDecoration: "line-through",
-              textDecorationColor: "currentColor",
-            }}>
-              {originalText}
-            </span>
-          </p>
-
           <div style={{
-            opacity: heroT,
-            transform: `translateY(${simplifyLerp(12, 0, heroT)}px)`,
+            ...T.small, color: hintCol, fontWeight: 600, marginBottom: 6,
           }}>
-            <div style={{
-              borderRadius: CARD_RADIUS,
-              padding: SIMPLIFY_HERO_PAD,
-              background: heroBg,
-              border: `1.5px solid ${heroBorder}`,
-              boxShadow: heroGlow,
-            }}>
-              <div style={{
-                fontFamily: "Inter",
-                fontSize: 20,
-                fontWeight: 600,
-                lineHeight: 1.45,
-                color: isDark ? "#EDEAE4" : "var(--n9)",
-                textAlign: "center",
-              }}>
-                {smallerText}
-              </div>
-            </div>
+            Take your time. No rush.
           </div>
+          <div style={{ ...T.hint, color: hintCol }}>Press and hold the circle to finish.</div>
         </div>
-        <div style={{ flex: 1, minHeight: FOCUS_CAPTION_MIN_H, width: "100%" }} />
-
         <div style={{
-          flexShrink: 0,
-          minHeight: FOCUS_ACTIONS_H,
+          position: "absolute",
+          inset: 0,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          textAlign: "center",
+          opacity: restReady ? 1 : 0,
+          transition: "opacity 600ms ease",
+        }}>
+          <div style={{
+            fontFamily: "'DM Serif Display', serif",
+            fontSize: 23,
+            lineHeight: 1.2,
+            color: serifRgb,
+            marginBottom: 6,
+          }}>
+            Small step taken.
+          </div>
+          <div style={{ ...T.subtitle, color: serifMuted }}>That's real progress.</div>
+        </div>
+      </div>
+
+      <div style={{
+        position: "fixed",
+        left: SCREEN_H_PAD,
+        right: SCREEN_H_PAD,
+        bottom: "max(40px, env(safe-area-inset-bottom))",
+        maxWidth: GATHER_CANVAS_W,
+        margin: "0 auto",
+        zIndex: 2,
+        minHeight: FOCUS_ACTIONS_H,
+        boxSizing: "border-box",
+      }}>
+        <div style={{
           display: "flex",
           flexDirection: "column",
           gap: 12,
-          justifyContent: "flex-end",
+          visibility: isComplete ? "hidden" : "visible",
+          pointerEvents: isComplete ? "none" : "auto",
         }}>
-          <div style={{
-            opacity: primaryBtnT,
-            transform: `translateY(${simplifyLerp(6, 0, primaryBtnT)}px)`,
-            pointerEvents: primaryBtnT > 0.4 ? "auto" : "none",
-          }}>
-            <BtnPrimary onClick={next}>That feels doable</BtnPrimary>
-          </div>
-          <div style={{
-            opacity: secondaryBtnT,
-            transform: `translateY(${simplifyLerp(6, 0, secondaryBtnT)}px)`,
-            pointerEvents: secondaryBtnT > 0.4 ? "auto" : "none",
-          }}>
-            <BtnSecondary onClick={onStillTooMuch || next}>Still too much</BtnSecondary>
-          </div>
+          <BtnSecondary key="too-much" onClick={onTooMuch}>Too much?</BtnSecondary>
+          {showDeferInput ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 4 }}>
+              <div style={{ ...T.small, color: "var(--n7)" }}>What do you need first?</div>
+              <input
+                className="nudge-defer-input"
+                value={deferDraft}
+                onChange={e => setDeferDraft(e.target.value)}
+                placeholder="e.g. find the right document"
+                style={{
+                  border: `1.5px solid ${C.accent500}`, borderRadius: 12,
+                  padding: "12px 14px", width: "100%", boxSizing: "border-box",
+                  ...T.body, fontFamily: "Inter", color: "var(--n9)",
+                  background: isDark ? "#2D2A45" : C.neutral50,
+                }}
+              />
+              <style>{`.nudge-defer-input::placeholder { color: ${C.neutral300}; opacity: 1; }`}</style>
+              <BtnPrimary onClick={() => deferDraft.trim() && onDefer(deferDraft.trim())}>Save & come back</BtnPrimary>
+            </div>
+          ) : (
+            <BtnSecondary key="not-ready" onClick={() => setShowDeferInput(true)}>Not ready yet</BtnSecondary>
+          )}
+        </div>
+        <div style={{
+          position: "absolute",
+          inset: 0,
+          display: "flex",
+          flexDirection: "column",
+          gap: 12,
+          opacity: restReady ? 1 : 0,
+          pointerEvents: isComplete ? "auto" : "none",
+          transition: "opacity 600ms ease",
+        }}>
+          <BtnPrimary onClick={onMore}>One more thing</BtnPrimary>
+          <BtnSecondary onClick={onDoneForNow}>I'm done now</BtnSecondary>
         </div>
       </div>
     </>
+  );
+}
+
+// ── ARRIVAL SCREEN ───────────────────────────────────────────────────────────
+const ARRIVAL_LIGHT_MOTE = [255, 240, 214];
+const ARRIVAL_VESSEL_BOX = 92;
+const ARRIVAL_FADE_MS = 260;
+const ARRIVAL_DELAY_MS = 120;
+const ARRIVAL_TRAVEL_MS = 1000;
+const ARRIVAL_GRACE_MS = 400;
+
+const ARRIVAL_CARDS = [
+  { id: "quick-low", size: 46, fill: 0.30, label: "A quick, gentle one", sub: "a few minutes", energy: "low", timeAvailable: "10 min" },
+  { id: "quick-high", size: 46, fill: 0.86, label: "Quick and focused", sub: "a few minutes", energy: "high", timeAvailable: "15 min" },
+  { id: "long-low", size: 80, fill: 0.30, label: "Settle in, slowly", sub: "a good while", energy: "low", timeAvailable: "40 min" },
+  { id: "long-high", size: 80, fill: 0.86, label: "Settle in, focused", sub: "a good while", energy: "high", timeAvailable: "45 min" },
+];
+
+function arrivalSuggestedId(h = homeFractionalHour()) {
+  if (h >= 19 || h < 3) return "long-low";
+  return "quick-high";
+}
+
+function arrivalClamp(v, lo = 0, hi = 1) {
+  return Math.max(lo, Math.min(hi, v));
+}
+
+function arrivalLerp(a, b, t) {
+  return a + (b - a) * t;
+}
+
+function arrivalEaseInOut(t) {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+function arrivalWaterColor(fp, fill) {
+  return fp.waterStart.map((v, i) => Math.round(v + (fp.waterEnd[i] - v) * fill));
+}
+
+function drawArrivalVessel(ctx, cx, cy, r, fill, time, fp, extraAmp = 0) {
+  const dome = ctx.createRadialGradient(cx, cy - r * 0.2, r * 0.1, cx, cy, r);
+  dome.addColorStop(0, `rgb(${fp.domeCenter[0]},${fp.domeCenter[1]},${fp.domeCenter[2]})`);
+  dome.addColorStop(1, `rgb(${fp.disc[0]},${fp.disc[1]},${fp.disc[2]})`);
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = dome;
+  ctx.fill();
+  if (fill > 0) {
+    const wc = arrivalWaterColor(fp, fill);
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r - 1, 0, Math.PI * 2);
+    ctx.clip();
+    const waterTop = cy + r - fill * (r * 2);
+    const waveAmp = 4.5 * (r / GATHER_CIRCLE_R) + extraAmp;
+    const waveAt = (x) =>
+      waterTop +
+      Math.sin((x / 34) + time * 2.6) * waveAmp +
+      Math.sin((x / 13) - time * 3.64) * waveAmp * 0.35;
+    ctx.beginPath();
+    ctx.moveTo(cx - r, cy + r);
+    for (let x = cx - r; x <= cx + r; x += 4) {
+      ctx.lineTo(x, waveAt(x));
+    }
+    ctx.lineTo(cx + r, cy + r);
+    ctx.closePath();
+    ctx.fillStyle = `rgba(${wc[0]},${wc[1]},${wc[2]},0.92)`;
+    ctx.fill();
+    ctx.beginPath();
+    for (let x = cx - r; x <= cx + r; x += 4) {
+      x === cx - r ? ctx.moveTo(x, waveAt(x)) : ctx.lineTo(x, waveAt(x));
+    }
+    ctx.strokeStyle = "rgba(255,255,255,0.3)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
+  }
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.strokeStyle = `rgb(${fp.ring[0]},${fp.ring[1]},${fp.ring[2]})`;
+  ctx.lineWidth = 1.4;
+  ctx.stroke();
+}
+
+function ArrivalCardVessel({ size, fill, fp, ripple, hidden, reducedMotion }) {
+  const ref = useRef(null);
+  const fpRef = useRef(fp);
+  fpRef.current = fp;
+
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const box = ARRIVAL_VESSEL_BOX;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = box * dpr;
+    canvas.height = box * dpr;
+    canvas.style.width = `${box}px`;
+    canvas.style.height = `${box}px`;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    let raf;
+    const draw = (now) => {
+      const time = now * 0.001;
+      ctx.clearRect(0, 0, box, box);
+      if (!hidden) {
+        const f = fpRef.current;
+        const cx = box / 2;
+        const cy = box / 2;
+        const r = size / 2;
+        let extraAmp = 0;
+        if (ripple && !reducedMotion) {
+          const age = now - ripple.t0;
+          if (age < 700) extraAmp = (1 - age / 700) * r * 0.05;
+        }
+        drawArrivalVessel(ctx, cx, cy, r, fill, time, f, extraAmp);
+        if (ripple && !reducedMotion) {
+          const age = now - ripple.t0;
+          if (age < 700) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(cx, cy, r - 1, 0, Math.PI * 2);
+            ctx.clip();
+            const prog = age / 700;
+            for (let k = 0; k < 2; k++) {
+              const pp = arrivalClamp(prog - k * 0.18);
+              if (pp <= 0) continue;
+              ctx.beginPath();
+              ctx.arc(ripple.x, ripple.y, pp * r * 1.4, 0, Math.PI * 2);
+              ctx.strokeStyle = `rgba(255,255,255,${(1 - pp) * 0.28})`;
+              ctx.lineWidth = 1.2;
+              ctx.stroke();
+            }
+            ctx.restore();
+          }
+        }
+      }
+      raf = requestAnimationFrame(draw);
+    };
+    raf = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(raf);
+  }, [size, fill, ripple, hidden, reducedMotion]);
+
+  return <canvas ref={ref} style={{ display: "block" }} aria-hidden />;
+}
+
+function ArrivalScreen({ stepsLoading, stepsReady, lastChoiceId, onChoose, onComplete }) {
+  const frameRef = useRef(null);
+  const overlayRef = useRef(null);
+  const vesselRefs = useRef({});
+  const startRef = useRef(null);
+  const t0Ref = useRef(0);
+  const motesRef = useRef([]);
+  const pickTimeRef = useRef(0);
+  const advancedRef = useRef(false);
+  const fpRef = useRef(focusPaletteForHour());
+  const paletteRef = useRef(homePaletteForHour());
+
+  const [palette, setPalette] = useState(() => homePaletteForHour());
+  paletteRef.current = palette;
+  const fp = focusPaletteForHour();
+  fpRef.current = fp;
+
+  useEffect(() => {
+    const tick = () => {
+      const next = homePaletteForHour();
+      paletteRef.current = next;
+      setPalette(next);
+    };
+    tick();
+    const id = setInterval(tick, 60000);
+    return () => clearInterval(id);
+  }, []);
+
+  const reducedMotion = typeof window !== "undefined"
+    && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const travelMs = reducedMotion ? 380 : ARRIVAL_TRAVEL_MS;
+
+  const [picked, setPicked] = useState(null);
+  const [ripple, setRipple] = useState(null);
+  const [phase, setPhase] = useState("idle");
+  const [, setFrame] = useState(0);
+
+  const suggestedId = lastChoiceId || arrivalSuggestedId();
+  const skyInk = homeSkyInk(palette);
+  const skyRgb = `rgb(${palette.sky[0]}, ${palette.sky[1]}, ${palette.sky[2]})`;
+  const onDarkSky = homeRelLuminance(palette.sky) < 0.2;
+  const primaryRgb = `rgb(${palette.serif[0]}, ${palette.serif[1]}, ${palette.serif[2]})`;
+  const rgbaMuted = (a) => `rgba(${palette.muted[0]}, ${palette.muted[1]}, ${palette.muted[2]}, ${a})`;
+  const rgbaAction = (a) => `rgba(${palette.action[0]}, ${palette.action[1]}, ${palette.action[2]}, ${a})`;
+  const cardBg = onDarkSky
+    ? "rgba(255, 248, 245, 0.10)"
+    : `rgba(${palette.serif[0]}, ${palette.serif[1]}, ${palette.serif[2]}, 0.05)`;
+  const cardBorder = (suggested) => suggested
+    ? rgbaAction(0.42)
+    : onDarkSky
+    ? "rgba(255, 248, 245, 0.22)"
+    : `rgba(${palette.serif[0]}, ${palette.serif[1]}, ${palette.serif[2]}, 0.12)`;
+  const subAlpha = onDarkSky ? 0.78 : 0.5;
+  const footAlpha = onDarkSky ? 0.58 : 0.4;
+
+  const onPressVessel = (id, e) => {
+    if (reducedMotion) return;
+    const el = vesselRefs.current[id];
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    setRipple({
+      id,
+      x: arrivalClamp(e.clientX - rect.left, 0, ARRIVAL_VESSEL_BOX),
+      y: arrivalClamp(e.clientY - rect.top, 0, ARRIVAL_VESSEL_BOX),
+      t0: performance.now(),
+    });
+  };
+
+  const onPick = (id) => {
+    if (phase !== "idle") return;
+    const card = ARRIVAL_CARDS.find((c) => c.id === id);
+    if (!card) return;
+
+    onChoose({ id: card.id, energy: card.energy, timeAvailable: card.timeAvailable });
+
+    const frame = frameRef.current;
+    const el = vesselRefs.current[id];
+    let start = { x: 0, y: 0, r: GATHER_CIRCLE_R, fill: card.fill };
+    if (frame) {
+      const fRect = frame.getBoundingClientRect();
+      const centerY = fRect.height * GATHER_VIEWPORT_CY_RATIO;
+      start = {
+        x: fRect.width / 2,
+        y: centerY,
+        r: GATHER_CIRCLE_R,
+        fill: card.fill,
+      };
+      if (el && !reducedMotion) {
+        const r = el.getBoundingClientRect();
+        start = {
+          x: r.left - fRect.left + r.width / 2,
+          y: r.top - fRect.top + r.height / 2,
+          r: card.size / 2,
+          fill: card.fill,
+        };
+      }
+    }
+
+    const outer = 175;
+    motesRef.current = Array.from({ length: reducedMotion ? 8 : 18 }, () => ({
+      angle: Math.random() * Math.PI * 2,
+      radius: outer + Math.random() * 50,
+      speed: reducedMotion ? 0 : 0.18 + Math.random() * 0.32,
+      drift: (Math.random() - 0.5) * 0.004,
+      size: 3 + Math.random() * 4,
+      tw: Math.random() * Math.PI * 2,
+    }));
+
+    startRef.current = start;
+    t0Ref.current = performance.now();
+    pickTimeRef.current = performance.now();
+    advancedRef.current = false;
+    setPicked(id);
+    setPhase(reducedMotion ? "gathering" : "transition");
+  };
+
+  useEffect(() => {
+    if (phase !== "transition" && phase !== "gathering") return;
+    const canvas = overlayRef.current;
+    const frame = frameRef.current;
+    if (!canvas || !frame) return;
+
+    const ctx = canvas.getContext("2d");
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+    const resize = () => {
+      const w = frame.clientWidth;
+      const h = frame.clientHeight;
+      canvas.width = Math.max(1, w * dpr);
+      canvas.height = Math.max(1, h * dpr);
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+    resize();
+
+    const start = startRef.current;
+    const outer = 200;
+    let raf;
+
+    const draw = (now) => {
+      resize();
+      const w = frame.clientWidth;
+      const h = frame.clientHeight;
+      const centerY = h * GATHER_VIEWPORT_CY_RATIO;
+      const time = now * 0.001;
+      const elapsed = now - t0Ref.current;
+      const p = reducedMotion ? 1 : arrivalEaseInOut(arrivalClamp((elapsed - ARRIVAL_DELAY_MS) / travelMs));
+      setFrame((n) => n + 1);
+
+      ctx.clearRect(0, 0, w, h);
+
+      const cx = arrivalLerp(start.x, w / 2, p);
+      const cy = arrivalLerp(start.y, centerY, p);
+      const rBase = arrivalLerp(start.r, GATHER_CIRCLE_R, p);
+      const arrived = p >= 1;
+      const r = arrived && !reducedMotion
+        ? rBase * (1 + 0.025 * Math.sin(time * 1.6))
+        : rBase;
+      const innerR = rBase + 4;
+
+      if (p > 0.1) {
+        const halo = ctx.createRadialGradient(cx, cy, r * 0.7, cx, cy, r * 1.9);
+        const ha = 0.18 * arrivalClamp((p - 0.1) / 0.9) * (reducedMotion ? 0.45 : 1);
+        halo.addColorStop(0, `rgba(${ARRIVAL_LIGHT_MOTE[0]},${ARRIVAL_LIGHT_MOTE[1]},${ARRIVAL_LIGHT_MOTE[2]},${ha})`);
+        halo.addColorStop(1, `rgba(${ARRIVAL_LIGHT_MOTE[0]},${ARRIVAL_LIGHT_MOTE[1]},${ARRIVAL_LIGHT_MOTE[2]},0)`);
+        ctx.fillStyle = halo;
+        ctx.beginPath();
+        ctx.arc(cx, cy, r * 1.9, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      const motesA = arrivalClamp((p - 0.25) / 0.75) * (reducedMotion ? 0.35 : 1);
+      if (motesA > 0) {
+        for (const m of motesRef.current) {
+          if (!reducedMotion) {
+            m.radius -= m.speed;
+            m.angle += m.drift;
+            if (m.radius < innerR) {
+              m.radius = outer + Math.random() * 40;
+              m.angle = Math.random() * Math.PI * 2;
+            }
+          }
+          const mx = cx + Math.cos(m.angle) * m.radius;
+          const my = cy + Math.sin(m.angle) * m.radius;
+          const band = arrivalClamp((m.radius - innerR) / (outer - innerR));
+          const radial = Math.sin(band * Math.PI);
+          const twinkle = reducedMotion ? 0.4 : 0.55 + 0.45 * Math.sin(time * 2 + m.tw);
+          const a = motesA * radial * twinkle * 0.9;
+          if (a <= 0.01) continue;
+          const g = ctx.createRadialGradient(mx, my, 0, mx, my, m.size);
+          g.addColorStop(0, `rgba(${ARRIVAL_LIGHT_MOTE[0]},${ARRIVAL_LIGHT_MOTE[1]},${ARRIVAL_LIGHT_MOTE[2]},${a})`);
+          g.addColorStop(1, `rgba(${ARRIVAL_LIGHT_MOTE[0]},${ARRIVAL_LIGHT_MOTE[1]},${ARRIVAL_LIGHT_MOTE[2]},0)`);
+          ctx.fillStyle = g;
+          ctx.beginPath();
+          ctx.arc(mx, my, m.size, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      drawArrivalVessel(ctx, cx, cy, r, start.fill, time, fpRef.current);
+
+      if (arrived && phase === "transition") setPhase("gathering");
+      raf = requestAnimationFrame(draw);
+    };
+    raf = requestAnimationFrame(draw);
+
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(resize) : null;
+    ro?.observe(frame);
+    window.addEventListener("resize", resize);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      ro?.disconnect();
+      window.removeEventListener("resize", resize);
+    };
+  }, [phase, reducedMotion, travelMs]);
+
+  useEffect(() => {
+    if (phase !== "gathering" || advancedRef.current) return;
+    if (stepsLoading || !stepsReady) return;
+
+    const gatherDoneAt = ARRIVAL_DELAY_MS + travelMs;
+    const elapsed = performance.now() - pickTimeRef.current;
+    const remaining = Math.max(0, gatherDoneAt - elapsed) + ARRIVAL_GRACE_MS;
+
+    const timer = setTimeout(() => {
+      if (advancedRef.current) return;
+      advancedRef.current = true;
+      onComplete();
+    }, remaining);
+
+    return () => clearTimeout(timer);
+  }, [phase, stepsLoading, stepsReady, travelMs, onComplete]);
+
+  const elapsed = phase === "idle" ? 0 : performance.now() - t0Ref.current;
+  const travelP = phase === "idle" ? 0 : arrivalEaseInOut(arrivalClamp((elapsed - ARRIVAL_DELAY_MS) / travelMs));
+  const captionA = arrivalClamp((travelP - 0.8) / 0.2);
+
+  return (
+    <div
+      ref={frameRef}
+      style={{
+        position: "absolute",
+        inset: 0,
+        overflow: "hidden",
+        fontFamily: "Inter, -apple-system, sans-serif",
+      }}
+    >
+      <div
+        aria-hidden
+        style={{
+          position: "fixed",
+          inset: 0,
+          zIndex: 0,
+          backgroundColor: skyRgb,
+          pointerEvents: "none",
+        }}
+      />
+      <style>{`
+.arrival-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: 1px solid;
+  border-radius: 20px;
+  padding: 8px 16px 8px 6px;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  transition: transform 120ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.arrival-card:active { transform: scale(0.975); }
+`}</style>
+
+      <div style={{
+        position: "absolute",
+        inset: 0,
+        padding: "64px 26px max(40px, env(safe-area-inset-bottom))",
+        display: "flex",
+        flexDirection: "column",
+        pointerEvents: phase === "idle" ? "auto" : "none",
+        boxSizing: "border-box",
+        zIndex: 1,
+        color: primaryRgb,
+      }}>
+        <h1 style={{
+          fontFamily: "'DM Serif Display', Georgia, serif",
+          fontSize: 38,
+          lineHeight: 1.05,
+          letterSpacing: "-0.01em",
+          margin: "0 0 32px",
+          color: primaryRgb,
+          textShadow: skyInk.shadow,
+          opacity: phase === "idle" ? 1 : arrivalClamp(1 - elapsed / ARRIVAL_FADE_MS),
+          transform: phase === "idle" ? "none" : `translateY(${-6 * arrivalClamp(elapsed / ARRIVAL_FADE_MS)}px)`,
+        }}>
+          How are you<br />arriving?
+        </h1>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {ARRIVAL_CARDS.map((card) => {
+            const isChosen = card.id === picked;
+            const isSuggested = card.id === suggestedId;
+            let opacity = 1;
+            let ty = 0;
+            if (phase !== "idle") {
+              if (isChosen) opacity = arrivalClamp(1 - elapsed / (ARRIVAL_FADE_MS * 0.7));
+              else {
+                opacity = arrivalClamp(1 - elapsed / ARRIVAL_FADE_MS);
+                ty = 10 * arrivalClamp(elapsed / ARRIVAL_FADE_MS);
+              }
+            }
+            return (
+              <button
+                key={card.id}
+                type="button"
+                className="arrival-card"
+                onPointerDown={(e) => onPressVessel(card.id, e)}
+                onClick={() => onPick(card.id)}
+                style={{
+                  opacity,
+                  transform: `translateY(${ty}px)`,
+                  background: cardBg,
+                  borderColor: cardBorder(isSuggested),
+                  boxShadow: isSuggested
+                    ? `0 0 0 1px ${rgbaAction(0.18)}, 0 0 22px ${rgbaAction(0.14)}`
+                    : "none",
+                }}
+              >
+                <div
+                  ref={(n) => { vesselRefs.current[card.id] = n; }}
+                  style={{
+                    width: ARRIVAL_VESSEL_BOX,
+                    height: ARRIVAL_VESSEL_BOX,
+                    flexShrink: 0,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <ArrivalCardVessel
+                    size={card.size}
+                    fill={card.fill}
+                    fp={fp}
+                    ripple={ripple && ripple.id === card.id ? ripple : null}
+                    hidden={isChosen && phase !== "idle"}
+                    reducedMotion={reducedMotion}
+                  />
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 2, textAlign: "left" }}>
+                  <div style={{ fontSize: 18, fontWeight: 600, letterSpacing: "-0.01em", color: primaryRgb, textShadow: skyInk.shadow }}>
+                    {card.label}
+                  </div>
+                  <div style={{ fontSize: 13, fontWeight: 400, color: rgbaMuted(subAlpha) }}>
+                    {card.sub}
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        <div style={{
+          marginTop: 24,
+          textAlign: "center",
+          fontSize: 13,
+          letterSpacing: "0.01em",
+          color: rgbaMuted(footAlpha),
+          opacity: phase === "idle" ? 1 : arrivalClamp(1 - elapsed / ARRIVAL_FADE_MS),
+        }}>
+          One tap begins your session.
+        </div>
+      </div>
+
+      {(phase === "transition" || phase === "gathering") && (
+        <canvas
+          ref={overlayRef}
+          aria-hidden
+          style={{ position: "absolute", inset: 0, pointerEvents: "none", zIndex: 2 }}
+        />
+      )}
+
+      {(phase === "transition" || phase === "gathering") && (
+        <div style={{
+          position: "absolute",
+          top: GATHER_FIXED_CAPTION_TOP,
+          left: 0,
+          right: 0,
+          textAlign: "center",
+          fontFamily: "'DM Serif Display', Georgia, serif",
+          fontSize: 17,
+          fontStyle: "italic",
+          letterSpacing: "0.01em",
+          color: rgbaMuted(onDarkSky ? 0.62 : 0.45),
+          opacity: captionA,
+          pointerEvents: "none",
+          zIndex: 3,
+        }}>
+          finding where to begin
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Simplify screen — single misty fog zone per time-of-day band.
+const SIMPLIFY_PALETTES = {
+  morning: { fog: [183, 182, 168], serif: [42, 36, 56] },
+  afternoon: { fog: [160, 147, 174], serif: [245, 240, 248] },
+  evening: { fog: [60, 50, 90], serif: [237, 234, 228] },
+};
+
+function simplifyPaletteForHour(h = homeFractionalHour()) {
+  const lerpPal = (a, b, k) => ({
+    fog: homeLerpCol(a.fog, b.fog, k),
+    serif: homeLerpCol(a.serif, b.serif, k),
+  });
+  const M = SIMPLIFY_PALETTES.morning;
+  const A = SIMPLIFY_PALETTES.afternoon;
+  const E = SIMPLIFY_PALETTES.evening;
+  if (h >= 5 && h < 11) return M;
+  if (h >= 11 && h < 13) return lerpPal(M, A, (h - 11) / 2);
+  if (h >= 13 && h < 17) return A;
+  if (h >= 17 && h < 19) return lerpPal(A, E, (h - 17) / 2);
+  if (h >= 19 || h < 3) return E;
+  return lerpPal(E, M, (h - 3) / 2);
+}
+
+function simplifyFogLift(fog, amount = 20) {
+  return fog.map((v) => Math.min(255, v + amount));
+}
+
+function simplifyTextSize(text) {
+  const len = (text || "").length;
+  if (len <= 40) return 26;
+  if (len <= 70) return 23;
+  if (len <= 100) return 20;
+  return 18;
+}
+
+const SIMPLIFY_DISSOLVE_MS = 1200;
+const SIMPLIFY_DRIFT_HZ = 0.15;
+const SIMPLIFY_DRIFT_AMP = 0.03;
+const SIMPLIFY_SLOW_SPAWN_MS = 300;
+
+function SimplifyScreen({ next, onStillTooMuch, step }) {
+  const containerRef = useRef(null);
+  const bgRef = useRef(null);
+  const originalRef = useRef(null);
+  const particleCanvasRef = useRef(null);
+  const particlesRef = useRef([]);
+  const startRef = useRef(0);
+  const slowSpawnRef = useRef(0);
+  const paletteRef = useRef(simplifyPaletteForHour());
+
+  const reducedMotion = typeof window !== "undefined"
+    && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const originalText = step?.text ?? "";
+  const smallerText = step?.tooHard ?? "";
+  const palette = simplifyPaletteForHour();
+  paletteRef.current = palette;
+
+  const action = homeActionColor();
+  const serifRgb = `rgb(${palette.serif[0]}, ${palette.serif[1]}, ${palette.serif[2]})`;
+  const serifGhost = `rgba(${palette.serif[0]}, ${palette.serif[1]}, ${palette.serif[2]}, 0.6)`;
+  const serifBorder = `rgba(${palette.serif[0]}, ${palette.serif[1]}, ${palette.serif[2]}, 0.15)`;
+  const origSize = simplifyTextSize(originalText);
+  const newSize = simplifyTextSize(smallerText);
+
+  useEffect(() => {
+    particlesRef.current = [];
+    slowSpawnRef.current = 0;
+    startRef.current = performance.now();
+
+    const container = containerRef.current;
+    const particleCanvas = particleCanvasRef.current;
+    const originalEl = originalRef.current;
+    if (!container || !particleCanvas) return;
+
+    const ctx = particleCanvas.getContext("2d");
+    const DPR = Math.min(window.devicePixelRatio || 1, 2);
+
+    const resizeParticleCanvas = () => {
+      const wrap = originalEl?.parentElement;
+      if (!wrap) return;
+      const w = wrap.clientWidth;
+      const h = wrap.clientHeight;
+      particleCanvas.width = Math.max(1, w * DPR);
+      particleCanvas.height = Math.max(1, h * DPR);
+      particleCanvas.style.width = `${w}px`;
+      particleCanvas.style.height = `${h}px`;
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    };
+
+    const spawnFromText = () => {
+      if (!originalEl) return;
+      const rects = Array.from(originalEl.getClientRects());
+      if (!rects.length) return;
+      const wrapRect = originalEl.parentElement.getBoundingClientRect();
+      const rect = rects[Math.floor(Math.random() * rects.length)];
+      const x = rect.left - wrapRect.left + Math.random() * rect.width;
+      const y = rect.top - wrapRect.top + Math.random() * rect.height;
+      particlesRef.current.push({
+        x,
+        y,
+        vx: (Math.random() - 0.5) * 0.55,
+        vy: -(0.35 + Math.random() * 0.85),
+        walk: Math.random() * Math.PI * 2,
+        life: 1,
+        decay: 0.008 + Math.random() * 0.012,
+        size: 2 + Math.random() * 2,
+      });
+    };
+
+    let raf = 0;
+    let lastNow = startRef.current;
+    const tick = (now) => {
+      const dt = now - lastNow;
+      lastNow = now;
+      const elapsed = now - startRef.current;
+      const tSec = elapsed / 1000;
+      const pal = paletteRef.current;
+      const fog = pal.fog;
+      const drift = Math.sin(tSec * SIMPLIFY_DRIFT_HZ * Math.PI * 2) * SIMPLIFY_DRIFT_AMP;
+      const lum = 1 + drift;
+      const drifted = fog.map((v) => Math.min(255, Math.round(v * lum)));
+      if (bgRef.current) {
+        bgRef.current.style.backgroundColor = `rgb(${drifted[0]}, ${drifted[1]}, ${drifted[2]})`;
+      }
+
+      const dissolveK = reducedMotion ? 1 : Math.min(1, elapsed / SIMPLIFY_DISSOLVE_MS);
+      const origOpacity = reducedMotion ? 0.25 : 1 - dissolveK * 0.75;
+      const origBlur = reducedMotion ? 1.5 : dissolveK * 1.5;
+      if (originalEl) {
+        originalEl.style.opacity = String(origOpacity);
+        originalEl.style.filter = `blur(${origBlur}px)`;
+      }
+
+      resizeParticleCanvas();
+      const pw = particleCanvas.width / DPR;
+      const ph = particleCanvas.height / DPR;
+      ctx.clearRect(0, 0, pw, ph);
+
+      if (!reducedMotion) {
+        if (elapsed < SIMPLIFY_DISSOLVE_MS) {
+          const burst = 2 + Math.floor(dissolveK * 5);
+          for (let i = 0; i < burst; i++) spawnFromText();
+        } else {
+          slowSpawnRef.current += dt;
+          if (slowSpawnRef.current >= SIMPLIFY_SLOW_SPAWN_MS) {
+            slowSpawnRef.current = 0;
+            spawnFromText();
+          }
+        }
+      }
+
+      const lifted = simplifyFogLift(fog);
+      const nextParticles = [];
+      for (const p of particlesRef.current) {
+        p.walk += 0.04;
+        p.x += p.vx + Math.sin(p.walk) * 0.25;
+        p.y += p.vy;
+        p.life -= p.decay;
+        if (p.life <= 0) continue;
+        nextParticles.push(p);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${lifted[0]},${lifted[1]},${lifted[2]},${p.life * 0.6})`;
+        ctx.fill();
+      }
+      particlesRef.current = nextParticles;
+
+      raf = requestAnimationFrame(tick);
+    };
+
+    resizeParticleCanvas();
+    if (originalEl) {
+      originalEl.style.opacity = reducedMotion ? "0.25" : "1";
+      originalEl.style.filter = reducedMotion ? "blur(1.5px)" : "blur(0px)";
+    }
+    raf = requestAnimationFrame(tick);
+
+    const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(resizeParticleCanvas) : null;
+    ro?.observe(container);
+    window.addEventListener("resize", resizeParticleCanvas);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      ro?.disconnect();
+      window.removeEventListener("resize", resizeParticleCanvas);
+    };
+  }, [originalText, reducedMotion]);
+
+  const shadowRest = `0 4px 16px rgba(${action[0]},${action[1]},${action[2]},0.35)`;
+
+  return (
+    <div
+      ref={containerRef}
+      style={{
+        position: "absolute",
+        inset: 0,
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+      }}
+    >
+      <div
+        ref={bgRef}
+        aria-hidden
+        style={{
+          position: "absolute",
+          inset: 0,
+          backgroundColor: `rgb(${palette.fog[0]}, ${palette.fog[1]}, ${palette.fog[2]})`,
+        }}
+      />
+
+      <div style={{
+        position: "relative",
+        zIndex: 1,
+        flex: 1,
+        display: "flex",
+        flexDirection: "column",
+        padding: "26px 28px max(32px, env(safe-area-inset-bottom))",
+        boxSizing: "border-box",
+        minHeight: 0,
+      }}>
+        <div style={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          width: "100%",
+          maxWidth: GATHER_CANVAS_W,
+          margin: "0 auto",
+          minHeight: 0,
+        }}>
+          <div style={{ position: "relative", width: "100%" }}>
+            <p
+              ref={originalRef}
+              style={{
+                margin: 0,
+                fontFamily: "'DM Serif Display', Georgia, serif",
+                fontSize: origSize,
+                lineHeight: 1.35,
+                fontWeight: 400,
+                textAlign: "center",
+                color: serifRgb,
+                overflowWrap: "break-word",
+              }}
+            >
+              {originalText}
+            </p>
+            <canvas
+              ref={particleCanvasRef}
+              aria-hidden
+              style={{
+                position: "absolute",
+                left: 0,
+                top: 0,
+                pointerEvents: "none",
+              }}
+            />
+          </div>
+
+          <div style={{ height: 40, flexShrink: 0 }} aria-hidden />
+
+          <p style={{
+            margin: 0,
+            width: "100%",
+            fontFamily: "'DM Serif Display', Georgia, serif",
+            fontSize: newSize,
+            lineHeight: 1.35,
+            fontWeight: 400,
+            textAlign: "center",
+            color: serifRgb,
+            overflowWrap: "break-word",
+          }}>
+            {smallerText}
+          </p>
+        </div>
+
+        <div style={{
+          flexShrink: 0,
+          display: "flex",
+          flexDirection: "column",
+          gap: 12,
+          width: "100%",
+          maxWidth: GATHER_CANVAS_W,
+          margin: "0 auto",
+        }}>
+          <button
+            type="button"
+            onClick={next}
+            style={{
+              width: "100%",
+              border: "none",
+              borderRadius: 999,
+              padding: "17px 20px",
+              lineHeight: 1.4,
+              fontFamily: "Inter, sans-serif",
+              fontSize: 16.5,
+              fontWeight: 700,
+              cursor: "pointer",
+              color: C.neutral50,
+              background: `rgb(${action[0]}, ${action[1]}, ${action[2]})`,
+              boxShadow: shadowRest,
+            }}
+          >
+            Use this one
+          </button>
+          <button
+            type="button"
+            onClick={onStillTooMuch || next}
+            style={{
+              width: "100%",
+              background: "transparent",
+              border: `1px solid ${serifBorder}`,
+              borderRadius: 999,
+              padding: "14px 16px",
+              lineHeight: 1.4,
+              fontFamily: "Inter, sans-serif",
+              fontSize: 15.5,
+              fontWeight: 600,
+              cursor: "pointer",
+              color: serifGhost,
+            }}
+          >
+            Smaller still
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -2385,7 +3535,52 @@ function homeSkyInk(palette) {
   };
 }
 
-function homePaletteForHour(h) {
+// Ocean-half resume card: pick ink from ocean luminance and a frosted surface
+// that reads clearly against the bottom band (not the sky serif tokens).
+function homeOceanInk(palette) {
+  const light = homeRelLuminance(palette.ocean) < 0.18;
+  return {
+    ink: light ? HOME_LIGHT_INK : HOME_DARK_INK,
+    muted: light ? HOME_LIGHT_MUTED : HOME_DARK_MUTED,
+    shadow: light ? "0 1px 14px rgba(0,0,0,0.40)" : "0 1px 10px rgba(255,255,255,0.20)",
+  };
+}
+
+function homeResumeCardStyle(palette) {
+  const oceanInk = homeOceanInk(palette);
+  const onDarkOcean = homeRelLuminance(palette.ocean) < 0.18;
+  const rgbaInk = (c, a) => `rgba(${c[0]}, ${c[1]}, ${c[2]}, ${a})`;
+  const rgbInk = (c) => `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
+  const action = (a) => rgbaInk(palette.action, a);
+
+  if (onDarkOcean) {
+    return {
+      background: "rgba(255, 248, 245, 0.18)",
+      borderColor: "rgba(255, 248, 245, 0.30)",
+      label: rgbaInk(oceanInk.muted, 0.88),
+      meta: rgbaInk(oceanInk.muted, 0.76),
+      body: rgbInk(oceanInk.ink),
+      note: rgbaInk(oceanInk.muted, 0.68),
+      progress: action(0.92),
+      link: action(0.95),
+      textShadow: oceanInk.shadow,
+    };
+  }
+
+  return {
+    background: "rgba(255, 252, 248, 0.58)",
+    borderColor: "rgba(42, 36, 56, 0.14)",
+    label: rgbaInk(oceanInk.muted, 0.92),
+    meta: rgbaInk(oceanInk.ink, 0.72),
+    body: rgbInk(oceanInk.ink),
+    note: rgbaInk(oceanInk.muted, 0.78),
+    progress: action(0.88),
+    link: action(0.9),
+    textShadow: oceanInk.shadow,
+  };
+}
+
+function homePaletteForHour(h = homeFractionalHour()) {
   const lerp4 = (a, b, k) => [
     Math.round(homeLerp(a[0], b[0], k)),
     Math.round(homeLerp(a[1], b[1], k)),
@@ -2569,6 +3764,7 @@ function HomeScreen({ onResume, onContinueSession, inProgressSession, tasks, set
   const rgb = (c) => `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
   const rgba = (c, a) => `rgba(${c[0]}, ${c[1]}, ${c[2]}, ${a})`;
   const skyInk = homeSkyInk(palette);
+  const resumeCard = homeResumeCardStyle(palette);
 
   return (
     <div
@@ -2598,52 +3794,56 @@ function HomeScreen({ onResume, onContinueSession, inProgressSession, tasks, set
         boxSizing: "border-box",
       }}>
         <div style={{
-          flex: "0 0 52%",
-          paddingTop: 30,
+          flex: "0 0 50%",
+          maxHeight: "50%",
           display: "flex",
           flexDirection: "column",
-          justifyContent: "flex-end",
+          justifyContent: "center",
+          alignItems: "stretch",
+          boxSizing: "border-box",
+          minHeight: 0,
         }}>
-          {greeting.hint ? (
-            <div
-              className="home-rise"
-              style={{
-                margin: "0 0 8px",
-                fontSize: 14,
-                fontWeight: 500,
-                color: rgba(skyInk.muted, 0.9),
-                textShadow: skyInk.shadow,
-                opacity: 0,
-                animation: "homeRise 800ms 120ms cubic-bezier(.3,.9,.4,1) forwards",
-              }}
-            >
-              {greeting.hint}
-            </div>
-          ) : null}
-          <h1 style={{
-            margin: greeting.hint ? "0 0 0" : "16px 0 0",
-            fontFamily: "'DM Serif Display', Georgia, serif",
-            fontWeight: 400,
-            fontSize: 38,
-            lineHeight: 1.05,
-            letterSpacing: "-0.015em",
-            color: rgb(skyInk.ink),
-            textShadow: skyInk.shadow,
-          }}>
-            <span className="home-rise home-line1">{greeting.line1}</span>
-            <br />
-            <span className="home-rise home-line2">{greeting.line2}</span>
-          </h1>
+          <div style={{ width: "100%" }}>
+            {greeting.hint ? (
+              <div
+                className="home-rise"
+                style={{
+                  margin: "0 0 8px",
+                  fontSize: 14,
+                  fontWeight: 500,
+                  color: rgba(skyInk.muted, 0.9),
+                  textShadow: skyInk.shadow,
+                  opacity: 0,
+                  animation: "homeRise 800ms 120ms cubic-bezier(.3,.9,.4,1) forwards",
+                }}
+              >
+                {greeting.hint}
+              </div>
+            ) : null}
+            <h1 style={{
+              margin: 0,
+              fontFamily: "'DM Serif Display', Georgia, serif",
+              fontWeight: 400,
+              fontSize: 38,
+              lineHeight: 1.05,
+              letterSpacing: "-0.015em",
+              color: rgb(skyInk.ink),
+              textShadow: skyInk.shadow,
+            }}>
+              <span className="home-rise home-line1">{greeting.line1}</span>
+              <br />
+              <span className="home-rise home-line2">{greeting.line2}</span>
+            </h1>
 
-          <div style={{
-            marginTop: 4,
-            marginBottom: 28,
-            display: "flex",
-            flexDirection: "column",
-            gap: 2,
-            maxHeight: tasks.length >= 5 ? 168 : "none",
-            overflowY: tasks.length >= 5 ? "auto" : "visible",
-          }}>
+            <div style={{
+              marginTop: 20,
+              marginBottom: 28,
+              display: "flex",
+              flexDirection: "column",
+              gap: 2,
+              maxHeight: tasks.length >= 5 ? 168 : "none",
+              overflowY: tasks.length >= 5 ? "auto" : "visible",
+            }}>
             {tasks.map((t, i) => (
               <div
                 key={`${i}-${t}`}
@@ -2749,30 +3949,39 @@ function HomeScreen({ onResume, onContinueSession, inProgressSession, tasks, set
           >
             I'm ready
           </button>
+          </div>
         </div>
-
-        <div style={{ flex: "0 0 14%" }} aria-hidden="true" />
 
         <div style={{
           flex: "1 1 auto",
           display: "flex",
           flexDirection: "column",
-          paddingTop: 18,
+          minHeight: 0,
         }}>
-          {pausedCard ? (
-            <div
-              className="home-resume-card home-rise home-resume"
-              style={{
-                background: `rgba(${palette.card[0]}, ${palette.card[1]}, ${palette.card[2]}, ${palette.card[3]})`,
-                borderColor: `rgba(${palette.card[0]}, ${palette.card[1]}, ${palette.card[2]}, ${palette.card[3] + 0.08})`,
-              }}
-            >
+          <div style={{
+            flex: 1,
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "center",
+            minHeight: 0,
+          }}>
+        {pausedCard ? (
+          <div
+            className="home-resume-card home-rise home-resume"
+            style={{
+              marginTop: 0,
+              flexShrink: 0,
+              background: resumeCard.background,
+              borderColor: resumeCard.borderColor,
+            }}
+          >
               <div style={{
                 fontSize: 11,
                 fontWeight: 700,
                 letterSpacing: "0.12em",
                 textTransform: "uppercase",
-                color: rgba(palette.serif, 0.65),
+                color: resumeCard.label,
+                textShadow: resumeCard.textShadow,
               }}>
                 You were here
               </div>
@@ -2782,7 +3991,8 @@ function HomeScreen({ onResume, onContinueSession, inProgressSession, tasks, set
                   fontSize: 13,
                   fontWeight: 600,
                   lineHeight: 1.3,
-                  color: rgba(palette.serif, 0.7),
+                  color: resumeCard.meta,
+                  textShadow: resumeCard.textShadow,
                 }}>
                   {pausedCard.task}
                 </div>
@@ -2793,7 +4003,8 @@ function HomeScreen({ onResume, onContinueSession, inProgressSession, tasks, set
                   fontSize: 12.5,
                   fontWeight: 500,
                   lineHeight: 1.35,
-                  color: rgba(palette.action, 0.75),
+                  color: resumeCard.progress,
+                  textShadow: resumeCard.textShadow,
                 }}>
                   {pausedCard.pauseProgress}
                 </div>
@@ -2803,7 +4014,8 @@ function HomeScreen({ onResume, onContinueSession, inProgressSession, tasks, set
                 fontSize: 15.5,
                 fontWeight: 500,
                 lineHeight: 1.35,
-                color: rgb(palette.serif),
+                color: resumeCard.body,
+                textShadow: resumeCard.textShadow,
               }}>
                 {pausedCard.step?.text || "Your step is loading…"}
               </div>
@@ -2814,7 +4026,8 @@ function HomeScreen({ onResume, onContinueSession, inProgressSession, tasks, set
                   fontWeight: 400,
                   fontStyle: "italic",
                   lineHeight: 1.5,
-                  color: rgba(palette.serif, 0.55),
+                  color: resumeCard.note,
+                  textShadow: resumeCard.textShadow,
                 }}>
                   {pausedCard.note}
                 </div>
@@ -2823,7 +4036,7 @@ function HomeScreen({ onResume, onContinueSession, inProgressSession, tasks, set
                 type="button"
                 className="home-resume-btn"
                 onClick={onContinueSession}
-                style={{ color: rgba(palette.action, 0.75) }}
+                style={{ color: resumeCard.link, textShadow: resumeCard.textShadow }}
               >
                 Continue where you left off ›
               </button>
@@ -2832,8 +4045,10 @@ function HomeScreen({ onResume, onContinueSession, inProgressSession, tasks, set
             <div
               className="home-resume-card home-rise home-resume"
               style={{
-                background: `rgba(${palette.card[0]}, ${palette.card[1]}, ${palette.card[2]}, ${palette.card[3]})`,
-                borderColor: `rgba(${palette.card[0]}, ${palette.card[1]}, ${palette.card[2]}, ${palette.card[3] + 0.08})`,
+                marginTop: 0,
+                flexShrink: 0,
+                background: resumeCard.background,
+                borderColor: resumeCard.borderColor,
               }}
             >
               <div style={{
@@ -2841,7 +4056,8 @@ function HomeScreen({ onResume, onContinueSession, inProgressSession, tasks, set
                 fontWeight: 700,
                 letterSpacing: "0.12em",
                 textTransform: "uppercase",
-                color: rgba(palette.serif, 0.65),
+                color: resumeCard.label,
+                textShadow: resumeCard.textShadow,
               }}>
                 Where you left off
               </div>
@@ -2850,7 +4066,8 @@ function HomeScreen({ onResume, onContinueSession, inProgressSession, tasks, set
                 fontSize: 15.5,
                 fontWeight: 500,
                 lineHeight: 1.35,
-                color: rgb(palette.serif),
+                color: resumeCard.body,
+                textShadow: resumeCard.textShadow,
               }}>
                 {inProgressSession.step?.text || "Your step is loading…"}
               </div>
@@ -2858,21 +4075,26 @@ function HomeScreen({ onResume, onContinueSession, inProgressSession, tasks, set
                 type="button"
                 className="home-resume-btn"
                 onClick={onContinueSession}
-                style={{ color: rgba(palette.action, 0.75) }}
+                style={{ color: resumeCard.link, textShadow: resumeCard.textShadow }}
               >
                 Continue ›
               </button>
             </div>
           ) : null}
+          </div>
 
-          <button
-            type="button"
-            className="home-history-link home-rise home-history"
-            onClick={onHistory}
-            style={{ color: rgba(palette.action, 0.55) }}
-          >
-            History
-          </button>
+        <button
+          type="button"
+          className="home-history-link home-rise home-history"
+          onClick={onHistory}
+          style={{
+            color: rgba(palette.action, 0.55),
+            marginTop: (pausedCard || inProgressSession) ? 16 : "auto",
+            flexShrink: 0,
+          }}
+        >
+          History
+        </button>
         </div>
       </div>
     </div>
@@ -2883,6 +4105,38 @@ function doneShellBackground(isDark) {
   return isDark
     ? "radial-gradient(ellipse at 50% 20%, #1A2D24 0%, #1A1828 60%)"
     : "radial-gradient(ellipse at 50% 20%, #E8FFF4 0%, #F0EEF5 60%)";
+}
+
+// Solid RGB targets for the cross-screen shell backdrop (always interpolatable).
+const SHELL_BG_DARK = [26, 24, 40];
+const SHELL_BG_LIGHT = [247, 246, 242];
+const SHELL_BG_DONE_LIGHT = [240, 238, 245];
+
+function homeShellBlendRgb(palette) {
+  return palette.sky.map((v, i) => Math.round(v * 0.38 + palette.ocean[i] * 0.62));
+}
+
+function shellBgRgb(screen, focusPalette, isDark) {
+  if (screen === "home" || screen === "return_paused") {
+    return homeShellBlendRgb(homePaletteForHour());
+  }
+  if (screen === "arrival" || screen === "suggestion") {
+    return homePaletteForHour().sky;
+  }
+  if (screen === "simplify") {
+    return simplifyPaletteForHour().fog;
+  }
+  if (screen === "session_complete" || screen === "inprogress") {
+    return focusPalette.bg;
+  }
+  if (screen === "done") {
+    return isDark ? SHELL_BG_DARK : SHELL_BG_DONE_LIGHT;
+  }
+  return isDark ? SHELL_BG_DARK : SHELL_BG_LIGHT;
+}
+
+function shellBgCss(rgb) {
+  return `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
 }
 
 const SESSION_COMPLETE_HALO_R = GATHER_CIRCLE_R + 52;
@@ -4154,6 +5408,7 @@ function loadPersistedAppState() {
       pausedNote: note ? JSON.parse(note) : "",
       pausedProgress: progress ? JSON.parse(progress) : "",
       inProgressSession,
+      arrivalChoiceId: localStorage.getItem("nudge_arrival_choice") || "",
     };
   } catch {
     return {
@@ -4171,6 +5426,7 @@ function loadPersistedAppState() {
       pausedNote: "",
       pausedProgress: "",
       inProgressSession: null,
+      arrivalChoiceId: "",
     };
   }
 }
@@ -4196,6 +5452,8 @@ export default function NudgeApp() {
   const [inProgressSession, setInProgressSession] = useState(null);
   const [sessionStepCount, setSessionStepCount] = useState(0);
   const [sessionSteps, setSessionSteps] = useState([]);
+  const [breakdownEnabled, setBreakdownEnabled] = useState(true);
+  const [arrivalChoiceId, setArrivalChoiceId] = useState("");
   // Time-of-day focus palette, locked when a focus session starts.
   const [focusPalette, setFocusPalette] = useState(() => focusPaletteForHour());
 
@@ -4223,6 +5481,8 @@ export default function NudgeApp() {
     setPausedNote(saved.pausedNote);
     setPausedProgress(saved.pausedProgress);
     setInProgressSession(saved.inProgressSession);
+    setArrivalChoiceId(saved.arrivalChoiceId || "");
+    setBreakdownEnabled(saved.screen !== "arrival");
     setHydrated(true);
   }, []);
 
@@ -4302,7 +5562,7 @@ export default function NudgeApp() {
   const go = s => { prevScreen.current = screen; setScreen(s); };
   const goHome = (reason = "list") => { setHomeReason(reason); go("home"); };
   const task = tasks[0] || "Work on portfolio";
-  const { steps, loading: stepsLoading, stepsTask } = useTaskBreakdown(task, defaultEnergy, defaultTime, granularity);
+  const { steps, loading: stepsLoading, stepsTask } = useTaskBreakdown(task, defaultEnergy, defaultTime, granularity, breakdownEnabled);
   const { recordSession, getInsights } = usePatternLearning();
   const stepsMatchTask = stepsTask === task;
   const taskSteps = stepsMatchTask ? steps : [];
@@ -4345,12 +5605,29 @@ export default function NudgeApp() {
     ? pinnedInProgressStep.current
     : currentStep;
 
-  const enterInProgress = () => {
+  const enterInProgress = ({ fromDescent = false, lockedFocusPalette = null } = {}) => {
     if (stepsBusy || !currentStep?.text) return;
     pinnedInProgressStep.current = currentStep;
     activeCompletionTask.current = task;
-    setFocusPalette(focusPaletteForHour());
+    setFocusPalette(lockedFocusPalette || focusPaletteForHour());
+    if (fromDescent) {
+      setGatherPhase("focus");
+      setGatherEntryMode("fromDescent");
+    } else {
+      setGatherPhase("loading");
+      setGatherEntryMode("normal");
+    }
     go("inprogress");
+  };
+
+  const handleStartDescent = (payload) => {
+    if (stepsBusy || !currentStep?.text) return;
+    setDescent(payload);
+  };
+
+  const handleDescentComplete = (lockedFocusPalette) => {
+    setDescent(null);
+    enterInProgress({ fromDescent: true, lockedFocusPalette });
   };
 
   useEffect(() => {
@@ -4405,6 +5682,32 @@ export default function NudgeApp() {
     const wasPrimary = picked === tasks[0];
     setTasks([picked, ...tasks.filter(x => x !== picked)]);
     if (!wasPrimary) setStepIndex(0);
+    setBreakdownEnabled(true);
+    go("suggestion");
+  };
+
+  const beginArrival = (picked) => {
+    clearInProgressSession();
+    activeCompletionTask.current = picked;
+    const wasPrimary = picked === tasks[0];
+    setTasks([picked, ...tasks.filter(x => x !== picked)]);
+    if (!wasPrimary) setStepIndex(0);
+    setBreakdownEnabled(false);
+    go("arrival");
+  };
+
+  const handleArrivalChoose = ({ id, energy, timeAvailable }) => {
+    setDefaultEnergy(energy);
+    setDefaultTime(timeAvailable);
+    setArrivalChoiceId(id);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("nudge_arrival_choice", id);
+    }
+    setBreakdownEnabled(true);
+  };
+
+  const completeArrival = () => {
+    setBreakdownEnabled(true);
     go("suggestion");
   };
 
@@ -4425,11 +5728,19 @@ export default function NudgeApp() {
 
   const [isLastStep, setIsLastStep] = useState(false);
   const [gatherPhase, setGatherPhase] = useState("loading");
+  const [gatherEntryMode, setGatherEntryMode] = useState("normal");
+  const [shellBgOverride, setShellBgOverride] = useState(null);
+  const [descent, setDescent] = useState(null);
   const resourceLink = stepLinks[stepIndex] || inProgressStep?.link || currentStep?.link || "";
 
   useEffect(() => {
     if (screen !== "inprogress") setGatherPhase("loading");
   }, [screen]);
+
+  useEffect(() => {
+    if (screen !== "inprogress") setGatherEntryMode("normal");
+    if (screen !== "suggestion" && !descent) setShellBgOverride(null);
+  }, [screen, descent]);
 
   const handleDone = () => {
     const doneStep = inProgressStep || currentStep;
@@ -4504,10 +5815,17 @@ export default function NudgeApp() {
     splash: <SplashScreen next={() => go("onboarding")} />,
     onboarding: <OnboardingScreen next={() => go("setup")} tasks={tasks} setTasks={setTasks} />,
     setup: <SetupScreen next={() => go("ready")} back={() => go("onboarding")} setDefaultEnergy={setDefaultEnergy} setDefaultTime={setDefaultTime} />,
-    ready: <ReadyScreen next={() => go("suggestion")} back={() => go("setup")} setGranularity={setGranularity} />,
-    suggestion: <SuggestionScreen next={enterInProgress} onTooHard={() => { if (!stepsBusy && currentStep) go("simplify"); }} onAnother={() => go("allsteps")} onSkip={() => setStepIndex(i => (taskSteps.length ? (i + 1) % taskSteps.length : 0))} onExit={() => goHome("exit")} task={task} stepIndex={stepIndex} steps={taskSteps} energy={defaultEnergy} loading={stepsBusy} deferredNote={deferredNote} onDismissDeferNote={() => setDeferredNote("")} />,
+    ready: <ReadyScreen next={() => { setBreakdownEnabled(true); go("suggestion"); }} back={() => go("setup")} setGranularity={setGranularity} />,
+    arrival: <ArrivalScreen
+      stepsLoading={stepsLoading}
+      stepsReady={stepsMatchTask && taskSteps.length > 0}
+      lastChoiceId={arrivalChoiceId}
+      onChoose={handleArrivalChoose}
+      onComplete={completeArrival}
+    />,
+    suggestion: <SuggestionScreen onStartDescent={handleStartDescent} isDescentActive={!!descent} onTooHard={() => { if (!stepsBusy && currentStep) go("simplify"); }} onAnother={() => go("allsteps")} onSkip={() => setStepIndex(i => (taskSteps.length ? (i + 1) % taskSteps.length : 0))} onExit={() => goHome("exit")} task={task} stepIndex={stepIndex} steps={taskSteps} energy={defaultEnergy} loading={stepsBusy} deferredNote={deferredNote} onDismissDeferNote={() => setDeferredNote("")} sessionStepCount={sessionStepCount} />,
     allsteps: <AllStepsScreen back={() => go("suggestion")} steps={taskSteps} task={task} stepIndex={stepIndex} onPick={i => { setStepIndex(i); go("suggestion"); }} loading={stepsBusy} stepLinks={stepLinks} onSetStepLink={(i, url) => setStepLinks(p => ({ ...p, [i]: url }))} />,
-    inprogress: <InProgressScreen gatherPhase={gatherPhase} onGatherPhaseChange={setGatherPhase} step={inProgressStep} resourceLink={resourceLink} stepsLoading={stepsBusy && !pinnedInProgressStep.current} onDone={handleDone} onPause={() => { setPausedStep(inProgressStep); go("pause"); }} onTooMuch={() => go("simplify")} onDefer={(note) => { setDeferredNote(note); go("suggestion"); }} onMore={() => go("suggestion")} onDoneForNow={openSessionComplete} focusPalette={focusPalette} />,
+    inprogress: <InProgressScreen gatherPhase={gatherPhase} onGatherPhaseChange={setGatherPhase} step={inProgressStep} resourceLink={resourceLink} stepsLoading={stepsBusy && !pinnedInProgressStep.current} onDone={handleDone} onPause={() => { setPausedStep(inProgressStep); go("pause"); }} onTooMuch={() => go("simplify")} onDefer={(note) => { setDeferredNote(note); go("suggestion"); }} onMore={() => go("suggestion")} onDoneForNow={openSessionComplete} focusPalette={focusPalette} skipGatherIntro={gatherEntryMode === "fromDescent"} />,
     simplify: <SimplifyScreen next={enterInProgress} onStillTooMuch={() => go("suggestion")} step={currentStep} />,
     pause: <PauseScreen
       onSaveAndPause={(data) => { savePauseState(data); go("return_paused"); }}
@@ -4518,7 +5836,7 @@ export default function NudgeApp() {
       reason={homeReason}
       inProgressSession={inProgressSession}
       onContinueSession={continueInProgressSession}
-      onResume={startFreshTask}
+      onResume={beginArrival}
       tasks={tasks}
       setTasks={setTasks}
       onHistory={() => go("history")}
@@ -4571,19 +5889,20 @@ export default function NudgeApp() {
     />,
   };
 
-  const isHome = screen === "home" || screen === "return_paused";
-  const shellBackground = isHome
-    ? "transparent"
-    : screen === "session_complete"
-      ? `rgb(${focusPalette.bg[0]}, ${focusPalette.bg[1]}, ${focusPalette.bg[2]})`
-      : screen === "inprogress"
-        ? `rgb(${focusPalette.bg[0]}, ${focusPalette.bg[1]}, ${focusPalette.bg[2]})`
-        : screen === "done"
-          ? doneShellBackground(isDark)
-          : (isDark ? "#1A1828" : C.neutral100);
+  const isHome = screen === "home" || screen === "return_paused" || screen === "simplify" || screen === "arrival" || screen === "suggestion";
+  const shellBg = shellBgCss(shellBgOverride ?? shellBgRgb(screen, focusPalette, isDark));
+  const shellBgInstant = !!shellBgOverride || !!descent;
 
   return (
     <IsDarkContext.Provider value={isDark}>
+    <div
+      aria-hidden
+      className="nudge-shell-backdrop"
+      style={{
+        backgroundColor: shellBg,
+        transition: shellBgInstant ? "none" : undefined,
+      }}
+    />
     <div style={{
       flex: 1,
       minHeight: "100vh",
@@ -4591,9 +5910,10 @@ export default function NudgeApp() {
       maxWidth: "100%",
       display: "flex",
       flexDirection: "column",
-      background: shellBackground,
+      background: "transparent",
       fontFamily: "Inter, sans-serif",
       position: "relative",
+      zIndex: 1,
       boxSizing: "border-box",
       overflow: "hidden",
       "--n9": c9(isDark),
@@ -4606,7 +5926,7 @@ html, body {
   padding: 0;
   width: 100%;
   min-height: 100%;
-  background: ${shellBackground};
+  background: ${shellBg};
 }
 #__next {
   margin: 0;
@@ -4616,7 +5936,14 @@ html, body {
   display: flex;
   flex-direction: column;
   flex: 1;
-  background: ${shellBackground};
+  background: transparent;
+}
+.nudge-shell-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  transition: background-color 720ms cubic-bezier(0.42, 0, 0.18, 1);
 }
 @keyframes drawCheck { from { stroke-dashoffset: 80; } to { stroke-dashoffset: 0; } }
 @keyframes ghostPulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
@@ -4676,12 +6003,13 @@ html, body {
 .home-primary-btn:active:not(:disabled) { transform: scale(0.99); }
 .home-primary-btn:disabled { box-shadow: 0 6px 24px rgba(124,111,205,0.18); }
 .home-resume-card {
-  margin-top: 20px;
+  margin-top: 0;
   padding: 16px 18px;
   border-radius: 18px;
   border: 1px solid;
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.12);
 }
 .home-resume-btn {
   background: transparent;
@@ -4708,6 +6036,7 @@ html, body {
 }
 .home-history-link:hover { opacity: 1 !important; }
 @media (prefers-reduced-motion: reduce) {
+  .nudge-shell-backdrop { transition: none !important; }
   .home-line1, .home-line2, .home-input, .home-ready, .home-resume, .home-history, .home-rise {
     animation: none !important;
     opacity: 1 !important;
@@ -4724,9 +6053,18 @@ html, body {
         maxWidth: "100%",
         boxSizing: "border-box",
         minHeight: 0,
+        position: "relative",
       }}>
         {screens[screen] || screens.splash}
       </div>
+      {descent ? (
+        <DescentOverlay
+          descent={descent}
+          onComplete={handleDescentComplete}
+          onShellBg={setShellBgOverride}
+          isDark={isDark}
+        />
+      ) : null}
     </div>
     </IsDarkContext.Provider>
   );
