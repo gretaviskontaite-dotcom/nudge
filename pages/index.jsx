@@ -1410,7 +1410,7 @@ function AllStepsScreen({ back, steps, stepIndex, onPick, task, loading, stepLin
               }} />
             </div>
           </div>
-        )) : steps.map((s, i) => (
+        )) : (Array.isArray(steps) ? steps : []).map((s, i) => (
           <div key={i} style={{ display: "flex", gap: 12, marginBottom: 4 }}>
             {/* Spine */}
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 24, flexShrink: 0 }}>
@@ -1446,7 +1446,7 @@ function AllStepsScreen({ back, steps, stepIndex, onPick, task, loading, stepLin
                 {i === stepIndex && <span style={{ ...T.label, color: C.accent500, fontSize: 10 }}>NOW</span>}
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6, rowGap: 4, marginTop: 8 }}>
-                {s.tags.map((t, j) => <Tag key={t} label={t} green={j === 1} compact />)}
+                {(Array.isArray(s.tags) ? s.tags : []).map((t, j) => <Tag key={t} label={t} green={j === 1} compact />)}
               </div>
               <div onClick={e => e.stopPropagation()} style={{ marginTop: 10 }}>
                 {linkEditingIndex === i ? (
@@ -1671,7 +1671,11 @@ const FOCUS_PALETTES = {
 function focusPaletteForHour(h = homeFractionalHour()) {
   const lerpPal = (a, b, k) => {
     const out = {};
-    for (const key in a) out[key] = homeLerpCol(a[key], b[key], k);
+    for (const key in a) {
+      out[key] = Array.isArray(a[key])
+        ? homeLerpCol(a[key], b[key], k)
+        : homeLerp(a[key], b[key], k);
+    }
     return out;
   };
   const M = FOCUS_PALETTES.morning;
@@ -3451,7 +3455,8 @@ function PauseScreen({ onSaveAndPause, onComeBackLater, onResume }) {
 }
 
 function HistoryScreen({ history, onBack }) {
-  const sorted = [...history].sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt));
+  const entries = Array.isArray(history) ? history : [];
+  const sorted = [...entries].sort((a, b) => new Date(b.completedAt) - new Date(a.completedAt));
   const grouped = sorted.reduce((acc, entry) => {
     const key = entry.taskId ?? entry.task;
     if (!acc[key]) acc[key] = [];
@@ -3471,7 +3476,7 @@ function HistoryScreen({ history, onBack }) {
       <Label>History</Label>
       <div style={{ ...T.heading, color: "var(--n9)", marginBottom: 20 }}>Steps you've taken</div>
       <div style={{ flex: 1, overflowY: "auto" }}>
-        {history.length === 0 ? (
+        {entries.length === 0 ? (
           <div style={{ ...T.small, color: "var(--n7)", textAlign: "center", padding: "32px 0" }}>
             No completed steps yet.
           </div>
@@ -3495,6 +3500,7 @@ function homeLerp(a, b, k) {
   return a + (b - a) * k;
 }
 function homeLerpCol(c1, c2, k) {
+  if (!Array.isArray(c1) || !Array.isArray(c2)) return c1;
   return c1.map((v, i) => Math.round(homeLerp(v, c2[i], k)));
 }
 
@@ -5422,9 +5428,20 @@ function loadPersistedAppState() {
       defaultTime: localStorage.getItem("nudge_time") || "10 min",
       stepIndex,
       sessionCount: Number.isInteger(sessionCountRaw) ? sessionCountRaw : 0,
-      completedSteps: JSON.parse(localStorage.getItem("nudge_completed_steps")) || [],
+      completedSteps: (() => {
+        try {
+          const parsed = JSON.parse(localStorage.getItem("nudge_completed_steps"));
+          return Array.isArray(parsed) ? parsed : [];
+        } catch { return []; }
+      })(),
       granularity: localStorage.getItem("nudge_granularity") || "balanced",
-      completedHistory: historyRaw ? JSON.parse(historyRaw) : [],
+      completedHistory: (() => {
+        if (!historyRaw) return [];
+        try {
+          const parsed = JSON.parse(historyRaw);
+          return Array.isArray(parsed) ? parsed : [];
+        } catch { return []; }
+      })(),
       pausedStep: step ? JSON.parse(step) : null,
       pausedTaskName: taskName ? JSON.parse(taskName) : "",
       pausedNote: note ? JSON.parse(note) : "",
