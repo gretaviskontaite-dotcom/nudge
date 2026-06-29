@@ -803,10 +803,12 @@ function LoadingStepCard({ style = {} }) {
   );
 }
 
-const DESCENT_FIRST_MS = 1800;
-const DESCENT_NEXT_MS = 600;
-const DESCENT_REDUCE_MS = 250;
-const DESCENT_BG_EASE = 2.3;
+const DESCENT_MS = 2200;
+const DESCENT_SETTLE_MS = 400;
+const DESCENT_FIRST_MS = DESCENT_MS + DESCENT_SETTLE_MS;
+const DESCENT_NEXT_MS = DESCENT_MS + DESCENT_SETTLE_MS;
+const DESCENT_REDUCE_MS = 200;
+const DESCENT_BG_EASE = 2.05;
 
 function descentBgProgress(rawT, reducedMotion) {
   return reducedMotion ? rawT : Math.pow(Math.min(1, Math.max(0, rawT)), DESCENT_BG_EASE);
@@ -814,7 +816,8 @@ function descentBgProgress(rawT, reducedMotion) {
 
 function descentMoteProgress(rawT, reducedMotion) {
   if (reducedMotion) return rawT >= 1 ? 1 : 0;
-  return Math.min(1, Math.max(0, rawT));
+  const t = Math.min(1, Math.max(0, rawT));
+  return t * t * (3 - 2 * t);
 }
 
 function vesselAssemblyFromProgress(progress) {
@@ -823,6 +826,153 @@ function vesselAssemblyFromProgress(progress) {
   const ringAlpha = Math.min(1, Math.max(0, (p - 0.22) / 0.58)) * Math.pow(eased, 0.85);
   const glowStrength = eased * eased;
   return { ringAlpha, glowStrength, eased };
+}
+
+function gathererMotionK(g, moteSince, landBoost) {
+  return Math.min(1, Math.max(0, ((moteSince - g.delay) / g.dur) * landBoost));
+}
+
+function gathererRingContrib(k) {
+  if (k >= 1) return 1;
+  if (k <= 0.68) return 0;
+  return (k - 0.68) / 0.32;
+}
+
+function descentFillFromRingBuild(ringBuild) {
+  const p = Math.min(1, Math.max(0, (ringBuild - 0.06) / 0.94));
+  const eased = p * p * (3 - 2 * p);
+  return Math.pow(eased, 1.2) * 0.62;
+}
+
+function measureRingBuild(gatherers, { moteSince, landBoost }) {
+  if (!gatherers.length) return 0;
+  let ringSum = 0;
+  for (const g of gatherers) {
+    ringSum += gathererRingContrib(gathererMotionK(g, moteSince, landBoost));
+  }
+  return ringSum / gatherers.length;
+}
+
+function drawDescentRingOutline(ctx, { cx, cy, R, fp, ringBuild }) {
+  const [rr, rg, rb] = fp.ring;
+  const p = Math.min(1, Math.max(0, ringBuild));
+  if (p <= 0.012) return;
+
+  const eased = p * p * (3 - 2 * p);
+  const mergeT = Math.min(1, Math.max(0, (p - 0.62) / 0.38));
+  const sweepT = 1 - mergeT;
+
+  if (sweepT > 0.015) {
+    const sweep = eased * Math.PI * 2;
+    const start = -Math.PI / 2;
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, start, start + sweep);
+    ctx.strokeStyle = `rgba(${rr},${rg},${rb},${sweepT * (0.28 + eased * 0.58)})`;
+    ctx.lineWidth = 1;
+    ctx.lineCap = "round";
+    ctx.stroke();
+  }
+
+  if (mergeT > 0.015) {
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(${rr},${rg},${rb},${mergeT * 0.92})`;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+}
+
+function drawDescentMoteRingHints(ctx, gatherers, { fp, moteSince, landBoost, ringBuild }) {
+  const mergeAway = Math.min(1, Math.max(0, (ringBuild - 0.5) / 0.35));
+  if (mergeAway >= 0.92) return;
+
+  for (const g of gatherers) {
+    const k = gathererMotionK(g, moteSince, landBoost);
+    const contrib = gathererRingContrib(k);
+    if (contrib <= 0.2) continue;
+    const dotA = contrib * (1 - mergeAway) * 0.38;
+    if (dotA <= 0.01) continue;
+    ctx.beginPath();
+    ctx.arc(g.tx, g.ty, 1 + contrib * 1.4, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${fp.mote[0]},${fp.mote[1]},${fp.mote[2]},${dotA})`;
+    ctx.fill();
+  }
+}
+
+function drawDescentGatherMotes(ctx, gatherers, {
+  moteSince,
+  landBoost,
+  fp,
+  a,
+  easeInOut,
+  idleFadeIn = 1,
+}) {
+  for (const g of gatherers) {
+    const k = gathererMotionK(g, moteSince, landBoost);
+    if (k >= 0.94) continue;
+
+    if (k <= 0) {
+      const idleAlpha = a.gatherIdle * idleFadeIn;
+      if (idleAlpha <= 0.004) continue;
+      ctx.beginPath();
+      ctx.arc(g.x, g.y, g.size * 0.7, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${fp.mote[0]},${fp.mote[1]},${fp.mote[2]},${idleAlpha})`;
+      ctx.fill();
+      continue;
+    }
+
+    const e = easeInOut(k);
+    const mx = (g.x + g.tx) / 2 + g.curve * Math.sin(Math.PI * 0.5);
+    const my = (g.y + g.ty) / 2 + g.curve * 0.45;
+    let x = (1 - e) * (1 - e) * g.x + 2 * (1 - e) * e * mx + e * e * g.tx;
+    let y = (1 - e) * (1 - e) * g.y + 2 * (1 - e) * e * my + e * e * g.ty;
+    if (k > 0.72) {
+      const snap = (k - 0.72) / 0.22;
+      x = x + (g.tx - x) * snap;
+      y = y + (g.ty - y) * snap;
+    }
+    const mergeFade = Math.max(0, 1 - Math.max(0, k - 0.78) / 0.16);
+    const alpha = (a.gatherAlphaMin + e * a.gatherAlphaRange) * mergeFade;
+    if (alpha <= 0.004) continue;
+    ctx.beginPath();
+    ctx.arc(x, y, g.size * (0.6 + e * 0.35), 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${fp.mote[0]},${fp.mote[1]},${fp.mote[2]},${alpha})`;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x, y, g.size * 2.2, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(${fp.mote[0]},${fp.mote[1]},${fp.mote[2]},${alpha * a.gatherGlow})`;
+    ctx.fill();
+  }
+}
+
+function drawDescentVesselFill(ctx, { cx, cy, R, fp, fillProgress }) {
+  const p = Math.min(1, Math.max(0, fillProgress));
+  if (p <= 0.003) return;
+  const eased = p * p * (3 - 2 * p);
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, Math.PI * 2);
+  ctx.clip();
+
+  if (eased >= 0.995) {
+    const dome = ctx.createRadialGradient(cx, cy, 0, cx, cy, R);
+    dome.addColorStop(0, `rgba(${fp.domeCenter[0]},${fp.domeCenter[1]},${fp.domeCenter[2]},1)`);
+    dome.addColorStop(1, `rgba(${fp.domeEdge[0]},${fp.domeEdge[1]},${fp.domeEdge[2]},1)`);
+    ctx.fillStyle = dome;
+    ctx.fillRect(cx - R, cy - R, R * 2, R * 2);
+  } else {
+    const intensity = eased * 0.62;
+    const glow = ctx.createRadialGradient(cx, cy, R * 0.12, cx, cy, R);
+    glow.addColorStop(0, `rgba(${fp.domeCenter[0]},${fp.domeCenter[1]},${fp.domeCenter[2]},${intensity * 0.26})`);
+    glow.addColorStop(0.4, `rgba(${fp.domeCenter[0]},${fp.domeCenter[1]},${fp.domeCenter[2]},${intensity * 0.11})`);
+    glow.addColorStop(0.78, `rgba(${fp.domeEdge[0]},${fp.domeEdge[1]},${fp.domeEdge[2]},${intensity * 0.045})`);
+    glow.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = glow;
+    ctx.fillRect(cx - R, cy - R, R * 2, R * 2);
+  }
+
+  ctx.restore();
 }
 
 function drawAssemblingVessel(ctx, { cx, cy, R, fp, progress }) {
@@ -877,15 +1027,15 @@ function drawAssemblingVessel(ctx, { cx, cy, R, fp, progress }) {
 
 const DESCENT_TEXT_SHADOW = "0 1px 14px rgba(0,0,0,0.38), 0 0 2px rgba(0,0,0,0.28)";
 
-function spawnGatherers(quick = false) {
+function spawnGatherers(quick = false, forDescent = false) {
   const arr = [];
   const W = GATHER_CANVAS_W;
   const H = GATHER_CANVAS_H;
   const count = quick ? 42 : 78;
-  const delayMax = quick ? 0.24 : 0.95;
-  const durBase = quick ? 0.44 : 1.05;
-  const durRange = quick ? 0.3 : 0.55;
-  const curveSpread = quick ? 70 : 100;
+  const delayMax = forDescent ? (quick ? 0.48 : 0.78) : (quick ? 0.24 : 0.95);
+  const durBase = forDescent ? (quick ? 0.58 : 0.88) : (quick ? 0.44 : 1.05);
+  const durRange = forDescent ? (quick ? 0.36 : 0.52) : (quick ? 0.3 : 0.55);
+  const curveSpread = forDescent ? (quick ? 38 : 48) : (quick ? 70 : 100);
   for (let i = 0; i < count; i++) {
     const edge = Math.floor(Math.random() * 4);
     let x;
@@ -894,12 +1044,16 @@ function spawnGatherers(quick = false) {
     else if (edge === 1) { x = W + 20 + Math.random() * 40; y = Math.random() * H; }
     else if (edge === 2) { x = Math.random() * W; y = H + 20 + Math.random() * 40; }
     else { x = -20 - Math.random() * 40; y = Math.random() * H; }
-    const targetAngle = (i / count) * Math.PI * 2 + (Math.random() - 0.5) * 0.35;
+    const angleJitter = forDescent ? 0.06 : 0.35;
+    const targetAngle = (i / count) * Math.PI * 2 + (Math.random() - 0.5) * angleJitter;
+    const stagger = forDescent ? (i / count) * delayMax * 0.55 : 0;
+    const jitter = Math.random() * (forDescent ? delayMax * 0.45 : delayMax);
     arr.push({
       x, y,
+      targetAngle,
       tx: GATHER_CIRCLE_CX + Math.cos(targetAngle) * GATHER_CIRCLE_R,
       ty: GATHER_CIRCLE_CY + Math.sin(targetAngle) * GATHER_CIRCLE_R,
-      delay: Math.random() * delayMax,
+      delay: stagger + jitter,
       dur: durBase + Math.random() * durRange,
       size: 1.6 + Math.random() * 2.8,
       curve: (Math.random() - 0.5) * curveSpread,
@@ -910,7 +1064,7 @@ function spawnGatherers(quick = false) {
 }
 
 function spawnDescentGatherers(quick = false) {
-  return spawnGatherers(quick);
+  return spawnGatherers(quick, true);
 }
 
 function drawGatherMotes(ctx, gatherers, {
@@ -920,6 +1074,7 @@ function drawGatherMotes(ctx, gatherers, {
   a,
   easeInOut,
   fadeArrived = true,
+  idleFadeIn = 1,
 }) {
   let arrivedCount = 0;
   let progressSum = 0;
@@ -936,20 +1091,22 @@ function drawGatherMotes(ctx, gatherers, {
       continue;
     }
     if (k <= 0) {
-      progressSum += 0.04;
+      progressSum += 0.03;
+      const idleAlpha = a.gatherIdle * idleFadeIn;
+      if (idleAlpha <= 0.004) continue;
       ctx.beginPath();
       ctx.arc(g.x, g.y, g.size * 0.7, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(${fp.mote[0]},${fp.mote[1]},${fp.mote[2]},${a.gatherIdle})`;
+      ctx.fillStyle = `rgba(${fp.mote[0]},${fp.mote[1]},${fp.mote[2]},${idleAlpha})`;
       ctx.fill();
       continue;
     }
-    progressSum += k;
+    progressSum += k * 0.96;
     const e = easeInOut(k);
     const mx = (g.x + g.tx) / 2 + g.curve * Math.sin(Math.PI * 0.5);
     const my = (g.y + g.ty) / 2 + g.curve * 0.6;
     const x = (1 - e) * (1 - e) * g.x + 2 * (1 - e) * e * mx + e * e * g.tx;
     const y = (1 - e) * (1 - e) * g.y + 2 * (1 - e) * e * my + e * e * g.ty;
-    const mergeFade = fadeArrived ? Math.max(0, 1 - Math.max(0, k - 0.82) / 0.18) : 1;
+    const mergeFade = fadeArrived ? Math.max(0, 1 - Math.max(0, k - 0.9) / 0.1) : 1;
     const alpha = (a.gatherAlphaMin + e * a.gatherAlphaRange) * mergeFade;
     if (alpha <= 0.004) continue;
     ctx.beginPath();
@@ -994,6 +1151,7 @@ function DescentOverlay({ descent, onComplete, onShellBg, isDark }) {
   const canvasRef = useRef(null);
   const gatherersRef = useRef([]);
   const circleAlphaRef = useRef(0);
+  const ringSmoothRef = useRef(0);
   const startRef = useRef(performance.now());
   const doneRef = useRef(false);
   const onCompleteRef = useRef(onComplete);
@@ -1003,16 +1161,14 @@ function DescentOverlay({ descent, onComplete, onShellBg, isDark }) {
 
   const reducedMotion = typeof window !== "undefined"
     && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const quick = descent.sessionStepCount > 0;
-  const durationMs = reducedMotion
-    ? DESCENT_REDUCE_MS
-    : (quick ? DESCENT_NEXT_MS : DESCENT_FIRST_MS);
+  const durationMs = reducedMotion ? DESCENT_REDUCE_MS : DESCENT_FIRST_MS;
   const theme = getGatherTheme(isDark);
   const { text, homePalette, focusPalette } = descent;
 
   useEffect(() => {
-    gatherersRef.current = reducedMotion ? [] : spawnDescentGatherers(quick);
+    gatherersRef.current = reducedMotion ? [] : spawnDescentGatherers(false);
     circleAlphaRef.current = 0;
+    ringSmoothRef.current = 0;
     startRef.current = performance.now();
     doneRef.current = false;
 
@@ -1043,7 +1199,9 @@ function DescentOverlay({ descent, onComplete, onShellBg, isDark }) {
 
     const draw = (now) => {
       const elapsed = now - startRef.current;
-      const rawT = Math.min(1, elapsed / durationMs);
+      const animMs = reducedMotion ? durationMs : DESCENT_MS;
+      const animT = Math.min(1, elapsed / animMs);
+      const rawT = animT;
       const bgT = descentBgProgress(rawT, reducedMotion);
       const motePhase = descentMoteProgress(rawT, reducedMotion);
       const bgRgb = sky.map((v, i) => Math.round(v + (ocean[i] - v) * bgT));
@@ -1054,42 +1212,62 @@ function DescentOverlay({ descent, onComplete, onShellBg, isDark }) {
 
       const moteSince = elapsed / 1000;
       const a = theme.a;
-      const breathe = reducedMotion ? 0.5 : Math.min(1, moteSince / (quick ? 0.45 : 1.2));
-      let gatherCoverage = circleAlphaRef.current;
+      const breathe = reducedMotion ? 0.5 : Math.min(1, moteSince / 0.85);
+      let ringBuild = 0;
+      let fillBuild = 0;
+      let landBoost = 1;
+      let idleFadeIn = 1;
+      const inSettle = !reducedMotion && elapsed >= DESCENT_MS;
 
       if (!reducedMotion && motePhase > 0 && gatherersRef.current.length) {
-        const landBoost = quick
-          ? (rawT < 1 ? Math.max(0.62, 1.05 / (1 + moteSince * 0.28)) : 1.9)
-          : (rawT < 1 ? Math.max(0.32, 0.78 / (1 + moteSince * 0.14)) : 1.75);
-        const { coverage } = drawGatherMotes(ctx, gatherersRef.current, {
+        idleFadeIn = Math.min(1, moteSince / 0.32);
+        const tailBoost = rawT > 0.78 ? 1 + (rawT - 0.78) * 1.6 : 1;
+        const baseBoost = Math.max(0.42, 0.82 / (1 + moteSince * 0.075));
+        landBoost = baseBoost * tailBoost;
+        const measuredRing = measureRingBuild(gatherersRef.current, { moteSince, landBoost });
+        ringBuild = lerp(ringSmoothRef.current, measuredRing, 0.14);
+        ringSmoothRef.current = ringBuild;
+        fillBuild = descentFillFromRingBuild(ringBuild);
+        if (ringBuild > 0.78) {
+          fillBuild = lerp(fillBuild, 1, Math.min(1, (ringBuild - 0.78) / 0.22));
+        }
+        circleAlphaRef.current = lerp(circleAlphaRef.current, fillBuild * motePhase, 0.05);
+      } else if (reducedMotion) {
+        circleAlphaRef.current = animT >= 1 ? 1 : 0;
+      }
+
+      if (inSettle) {
+        ringBuild = 1;
+        ringSmoothRef.current = 1;
+        fillBuild = 1;
+        circleAlphaRef.current = 1;
+      }
+
+      const assemblyFill = Math.max(fillBuild, circleAlphaRef.current);
+      const haloGate = ringBuild;
+      const R = baseR;
+      const maxGlowR = gatherGlowMaxR(cx, cy, W, H);
+
+      drawDescentVesselFill(ctx, { cx, cy, R, fp, fillProgress: assemblyFill });
+
+      if (!reducedMotion && motePhase > 0 && gatherersRef.current.length && !inSettle) {
+        drawDescentGatherMotes(ctx, gatherersRef.current, {
           moteSince,
           landBoost,
           fp,
           a,
           easeInOut,
+          idleFadeIn,
         });
-        gatherCoverage = Math.max(circleAlphaRef.current, coverage);
-        const rawTarget = gatherersRef.current.length ? coverage : 1;
-        const cap = rawT < (quick ? 0.88 : 0.92) ? (quick ? 0.78 : 0.72) : 1;
-        const target = Math.min(rawTarget, cap);
-        const alphaSpeed = quick
-          ? (rawT < 1 ? Math.max(0.035, 0.07 / (1 + moteSince * 0.1)) : 0.16)
-          : (rawT < 1 ? Math.max(0.018, 0.042 / (1 + moteSince * 0.08)) : 0.1);
-        circleAlphaRef.current = lerp(circleAlphaRef.current, target * motePhase, alphaSpeed);
-      } else if (reducedMotion) {
-        circleAlphaRef.current = rawT >= 1 ? 1 : 0;
+        drawDescentMoteRingHints(ctx, gatherersRef.current, {
+          fp, moteSince, landBoost, ringBuild,
+        });
+        drawDescentRingOutline(ctx, { cx, cy, R, fp, ringBuild });
+      } else if ((inSettle || ringBuild >= 0.98) && !reducedMotion) {
+        drawDescentRingOutline(ctx, { cx, cy, R, fp, ringBuild: 1 });
+      } else if (reducedMotion && animT >= 1) {
+        drawDescentRingOutline(ctx, { cx, cy, R, fp, ringBuild: 1 });
       }
-
-      if (rawT >= 1) {
-        circleAlphaRef.current = 1;
-        gatherCoverage = 1;
-      }
-
-      const assembly = circleAlphaRef.current;
-      gatherCoverage = Math.max(assembly, gatherCoverage);
-      const R = baseR;
-      const maxGlowR = gatherGlowMaxR(cx, cy, W, H);
-      const haloGate = gatherCoverage;
 
       {
         const [pr, pg, pb] = fp.pulse;
@@ -1114,9 +1292,7 @@ function DescentOverlay({ descent, onComplete, onShellBg, isDark }) {
         }
       }
 
-      drawAssemblingVessel(ctx, { cx, cy, R, fp, progress: gatherCoverage });
-
-      if (rawT >= 1 && !doneRef.current) {
+      if (elapsed >= durationMs && !doneRef.current) {
         doneRef.current = true;
         onCompleteRef.current(focusPalette);
         return;
@@ -1127,7 +1303,7 @@ function DescentOverlay({ descent, onComplete, onShellBg, isDark }) {
 
     raf = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(raf);
-  }, [descent.sessionStepCount, durationMs, reducedMotion, quick, focusPalette, homePalette]);
+  }, [descent.sessionStepCount, durationMs, reducedMotion, focusPalette, homePalette]);
 
   return (
     <div
@@ -1998,20 +2174,21 @@ function GatherBloomCircle({ sessionId, stepText, loading, phase, onPhaseChange,
           progress: Math.max(ca, gatherCoverage),
         });
       } else if (ca > 0.02) {
-        // Vessel disc — opaque inner dome gradient (static; does not change with hold).
-        const dome = ctx.createRadialGradient(cx, cy, 0, cx, cy, R);
+        const domeLift = ph === "complete" ? R * 0.2 : 0;
+        const dome = ctx.createRadialGradient(cx, cy - domeLift, R * 0.1, cx, cy, R);
         dome.addColorStop(0, `rgba(${fp.domeCenter[0]},${fp.domeCenter[1]},${fp.domeCenter[2]},${ca})`);
         dome.addColorStop(1, `rgba(${fp.domeEdge[0]},${fp.domeEdge[1]},${fp.domeEdge[2]},${ca})`);
         ctx.beginPath();
         ctx.arc(cx, cy, R, 0, Math.PI * 2);
         ctx.fillStyle = dome;
         ctx.fill();
-        // Outline ring — brighter sibling of the vessel color.
-        ctx.beginPath();
-        ctx.arc(cx, cy, R, 0, Math.PI * 2);
-        ctx.strokeStyle = `rgba(${fp.ring[0]},${fp.ring[1]},${fp.ring[2]},${ca})`;
-        ctx.lineWidth = 1;
-        ctx.stroke();
+        if (ph !== "complete") {
+          ctx.beginPath();
+          ctx.arc(cx, cy, R, 0, Math.PI * 2);
+          ctx.strokeStyle = `rgba(${fp.ring[0]},${fp.ring[1]},${fp.ring[2]},${ca})`;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
       }
 
       const tideRgb = (holdMix) => mixCol(fp.waterStart, fp.waterEnd, holdMix);
@@ -2076,37 +2253,64 @@ function GatherBloomCircle({ sessionId, stepText, loading, phase, onPhaseChange,
         ctx.stroke();
       }
 
-      // Complete (resting): vessel filled 100% with waterEnd, calm single-sine
-      // surface wave — no bubbles, no crest droplets.
+      // Complete (resting): water fills almost to the top; dome cap stays darker above surface.
       if (ph === "complete" && ca > 0.02) {
         const [wr, wg, wb] = fp.waterEnd;
         const [gr2, gg2, gb2] = fp.bloom;
+        const surfaceY = cy - R + 12;
+        const amp = reduceMotion.current ? 0 : 2.2;
+        const waveAt = (x) => surfaceY + Math.sin(x / 30 + t * 1.3) * amp;
+        const dy = surfaceY - cy;
+        const dx = Math.sqrt(Math.max(0, R * R - dy * dy));
+        const leftX = cx - dx;
+        const rightX = cx + dx;
+        const leftAngle = Math.atan2(surfaceY - cy, leftX - cx);
+        const rightAngle = Math.atan2(surfaceY - cy, rightX - cx);
+
         ctx.save();
         ctx.beginPath();
         ctx.arc(cx, cy, R - 1, 0, Math.PI * 2);
         ctx.clip();
+
+        ctx.beginPath();
+        ctx.moveTo(leftX, waveAt(leftX));
+        for (let x = leftX; x <= rightX; x += 3) {
+          ctx.lineTo(x, waveAt(x));
+        }
+        ctx.arc(cx, cy, R, rightAngle, leftAngle, false);
+        ctx.closePath();
         ctx.fillStyle = `rgba(${wr},${wg},${wb},${ca})`;
-        ctx.fillRect(cx - R, cy - R, R * 2, R * 2);
-        const sheen = ctx.createRadialGradient(cx - R * 0.25, cy - R * 0.3, R * 0.1, cx, cy, R);
-        sheen.addColorStop(0, `rgba(255,255,255,${0.16 * ca})`);
+        ctx.fill();
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(leftX, waveAt(leftX));
+        for (let x = leftX; x <= rightX; x += 3) {
+          ctx.lineTo(x, waveAt(x));
+        }
+        ctx.arc(cx, cy, R, rightAngle, leftAngle, false);
+        ctx.closePath();
+        ctx.clip();
+        const sheen = ctx.createRadialGradient(cx - R * 0.2, cy + R * 0.1, R * 0.08, cx, cy + R * 0.25, R);
+        sheen.addColorStop(0, `rgba(255,255,255,${0.14 * ca})`);
         sheen.addColorStop(1, "rgba(255,255,255,0)");
         ctx.fillStyle = sheen;
         ctx.fillRect(cx - R, cy - R, R * 2, R * 2);
-        const surfaceY = cy - R + 12;
-        const amp = reduceMotion.current ? 0 : 2.2;
+        ctx.restore();
+
         ctx.beginPath();
-        for (let x = cx - R; x <= cx + R; x += 4) {
-          const wy = surfaceY + Math.sin(x / 30 + t * 1.3) * amp;
-          x === cx - R ? ctx.moveTo(x, wy) : ctx.lineTo(x, wy);
+        for (let x = leftX; x <= rightX; x += 3) {
+          x === leftX ? ctx.moveTo(x, waveAt(x)) : ctx.lineTo(x, waveAt(x));
         }
         ctx.strokeStyle = `rgba(${gr2},${gg2},${gb2},${0.4 * ca})`;
         ctx.lineWidth = 1.5;
         ctx.stroke();
         ctx.restore();
-        // Outline ring on top of the water.
+
+        const ringRgb = fp.waterEnd.map((v) => Math.max(0, Math.min(255, Math.round(v * 0.84 - 8))));
         ctx.beginPath();
         ctx.arc(cx, cy, R, 0, Math.PI * 2);
-        ctx.strokeStyle = `rgba(${fp.ring[0]},${fp.ring[1]},${fp.ring[2]},${ca})`;
+        ctx.strokeStyle = `rgba(${ringRgb[0]},${ringRgb[1]},${ringRgb[2]},${ca})`;
         ctx.lineWidth = 1;
         ctx.stroke();
       }
@@ -2412,7 +2616,13 @@ function InProgressScreen({ gatherPhase, onGatherPhaseChange, onDone, onPause, o
 }
 
 // ── ARRIVAL SCREEN ───────────────────────────────────────────────────────────
-const ARRIVAL_LIGHT_MOTE = [255, 240, 214];
+const ARRIVAL_LIGHT_MOTE = [255, 248, 238];
+
+function arrivalMoteRgb(palette) {
+  const onDarkSky = homeRelLuminance(palette.sky) < 0.2;
+  if (onDarkSky) return [255, 253, 246];
+  return [255, 255, 252];
+}
 const ARRIVAL_VESSEL_BOX = 92;
 const ARRIVAL_FADE_MS = 260;
 const ARRIVAL_DELAY_MS = 120;
@@ -2447,6 +2657,22 @@ function arrivalWaterColor(fp, fill) {
   return fp.waterStart.map((v, i) => Math.round(v + (fp.waterEnd[i] - v) * fill));
 }
 
+function arrivalVesselRingColor(fp, fill) {
+  const wc = arrivalWaterColor(fp, fill);
+  return wc.map((v) => Math.max(0, Math.min(255, Math.round(v + (255 - v) * 0.28))));
+}
+
+function arrivalWaterSurface(x, { leftX, rightX, waterTop, waveAmp, time }) {
+  const span = rightX - leftX;
+  if (span <= 0) return waterTop;
+  const t = (x - leftX) / span;
+  const envelope = Math.sin(Math.PI * arrivalClamp(t));
+  const ripple =
+    Math.sin((x / 34) + time * 2.6) * waveAmp +
+    Math.sin((x / 13) - time * 3.64) * waveAmp * 0.35;
+  return waterTop + ripple * envelope;
+}
+
 function drawArrivalVessel(ctx, cx, cy, r, fill, time, fp, extraAmp = 0) {
   const dome = ctx.createRadialGradient(cx, cy - r * 0.2, r * 0.1, cx, cy, r);
   dome.addColorStop(0, `rgb(${fp.domeCenter[0]},${fp.domeCenter[1]},${fp.domeCenter[2]})`);
@@ -2455,40 +2681,52 @@ function drawArrivalVessel(ctx, cx, cy, r, fill, time, fp, extraAmp = 0) {
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
   ctx.fillStyle = dome;
   ctx.fill();
+
+  const ringRgb = fill > 0 ? arrivalVesselRingColor(fp, fill) : fp.ring;
+
   if (fill > 0) {
     const wc = arrivalWaterColor(fp, fill);
     ctx.save();
     ctx.beginPath();
     ctx.arc(cx, cy, r - 1, 0, Math.PI * 2);
     ctx.clip();
+
     const waterTop = cy + r - fill * (r * 2);
     const waveAmp = 4.5 * (r / GATHER_CIRCLE_R) + extraAmp;
-    const waveAt = (x) =>
-      waterTop +
-      Math.sin((x / 34) + time * 2.6) * waveAmp +
-      Math.sin((x / 13) - time * 3.64) * waveAmp * 0.35;
+    const dy = waterTop - cy;
+    const dx = Math.sqrt(Math.max(0, r * r - dy * dy));
+    const leftX = cx - dx;
+    const rightX = cx + dx;
+    const leftAngle = Math.atan2(waterTop - cy, leftX - cx);
+    const rightAngle = Math.atan2(waterTop - cy, rightX - cx);
+    const surfaceOpts = { leftX, rightX, waterTop, waveAmp, time };
+    const surfaceAt = (x) => arrivalWaterSurface(x, surfaceOpts);
+
     ctx.beginPath();
-    ctx.moveTo(cx - r, cy + r);
-    for (let x = cx - r; x <= cx + r; x += 4) {
-      ctx.lineTo(x, waveAt(x));
+    ctx.moveTo(leftX, surfaceAt(leftX));
+    for (let x = leftX; x <= rightX; x += 3) {
+      ctx.lineTo(x, surfaceAt(x));
     }
-    ctx.lineTo(cx + r, cy + r);
+    ctx.arc(cx, cy, r, rightAngle, leftAngle, false);
     ctx.closePath();
-    ctx.fillStyle = `rgba(${wc[0]},${wc[1]},${wc[2]},0.92)`;
+    ctx.fillStyle = `rgba(${wc[0]},${wc[1]},${wc[2]},0.94)`;
     ctx.fill();
+
     ctx.beginPath();
-    for (let x = cx - r; x <= cx + r; x += 4) {
-      x === cx - r ? ctx.moveTo(x, waveAt(x)) : ctx.lineTo(x, waveAt(x));
+    for (let x = leftX; x <= rightX; x += 3) {
+      x === leftX ? ctx.moveTo(x, surfaceAt(x)) : ctx.lineTo(x, surfaceAt(x));
     }
-    ctx.strokeStyle = "rgba(255,255,255,0.3)";
+    ctx.strokeStyle = "rgba(255,255,255,0.28)";
     ctx.lineWidth = 1;
     ctx.stroke();
+
     ctx.restore();
   }
+
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.strokeStyle = `rgb(${fp.ring[0]},${fp.ring[1]},${fp.ring[2]})`;
-  ctx.lineWidth = 1.4;
+  ctx.strokeStyle = `rgb(${ringRgb[0]},${ringRgb[1]},${ringRgb[2]})`;
+  ctx.lineWidth = 1.2;
   ctx.stroke();
 }
 
@@ -2653,12 +2891,12 @@ function ArrivalScreen({ stepsLoading, stepsReady, lastChoiceId, onChoose, onCom
     }
 
     const outer = 175;
-    motesRef.current = Array.from({ length: reducedMotion ? 8 : 18 }, () => ({
+    motesRef.current = Array.from({ length: reducedMotion ? 10 : 26 }, () => ({
       angle: Math.random() * Math.PI * 2,
       radius: outer + Math.random() * 50,
       speed: reducedMotion ? 0 : 0.18 + Math.random() * 0.32,
       drift: (Math.random() - 0.5) * 0.004,
-      size: 3 + Math.random() * 4,
+      size: 4 + Math.random() * 5,
       tw: Math.random() * Math.PI * 2,
     }));
 
@@ -2715,18 +2953,21 @@ function ArrivalScreen({ stepsLoading, stepsReady, lastChoiceId, onChoose, onCom
         : rBase;
       const innerR = rBase + 4;
 
-      if (p > 0.1) {
+      const moteRgb = arrivalMoteRgb(paletteRef.current);
+      const [mr, mg, mb] = moteRgb;
+
+      if (p > 0.08) {
         const halo = ctx.createRadialGradient(cx, cy, r * 0.7, cx, cy, r * 1.9);
-        const ha = 0.18 * arrivalClamp((p - 0.1) / 0.9) * (reducedMotion ? 0.45 : 1);
-        halo.addColorStop(0, `rgba(${ARRIVAL_LIGHT_MOTE[0]},${ARRIVAL_LIGHT_MOTE[1]},${ARRIVAL_LIGHT_MOTE[2]},${ha})`);
-        halo.addColorStop(1, `rgba(${ARRIVAL_LIGHT_MOTE[0]},${ARRIVAL_LIGHT_MOTE[1]},${ARRIVAL_LIGHT_MOTE[2]},0)`);
+        const ha = 0.28 * arrivalClamp((p - 0.08) / 0.92) * (reducedMotion ? 0.5 : 1);
+        halo.addColorStop(0, `rgba(${mr},${mg},${mb},${ha})`);
+        halo.addColorStop(1, `rgba(${mr},${mg},${mb},0)`);
         ctx.fillStyle = halo;
         ctx.beginPath();
         ctx.arc(cx, cy, r * 1.9, 0, Math.PI * 2);
         ctx.fill();
       }
 
-      const motesA = arrivalClamp((p - 0.25) / 0.75) * (reducedMotion ? 0.35 : 1);
+      const motesA = arrivalClamp((p - 0.12) / 0.88) * (reducedMotion ? 0.45 : 1);
       if (motesA > 0) {
         for (const m of motesRef.current) {
           if (!reducedMotion) {
@@ -2740,13 +2981,14 @@ function ArrivalScreen({ stepsLoading, stepsReady, lastChoiceId, onChoose, onCom
           const mx = cx + Math.cos(m.angle) * m.radius;
           const my = cy + Math.sin(m.angle) * m.radius;
           const band = arrivalClamp((m.radius - innerR) / (outer - innerR));
-          const radial = Math.sin(band * Math.PI);
-          const twinkle = reducedMotion ? 0.4 : 0.55 + 0.45 * Math.sin(time * 2 + m.tw);
-          const a = motesA * radial * twinkle * 0.9;
+          const radial = 0.42 + 0.58 * Math.sin(band * Math.PI);
+          const twinkle = reducedMotion ? 0.55 : 0.68 + 0.32 * Math.sin(time * 2 + m.tw);
+          const a = Math.min(1, motesA * radial * twinkle * 1.12);
           if (a <= 0.01) continue;
           const g = ctx.createRadialGradient(mx, my, 0, mx, my, m.size);
-          g.addColorStop(0, `rgba(${ARRIVAL_LIGHT_MOTE[0]},${ARRIVAL_LIGHT_MOTE[1]},${ARRIVAL_LIGHT_MOTE[2]},${a})`);
-          g.addColorStop(1, `rgba(${ARRIVAL_LIGHT_MOTE[0]},${ARRIVAL_LIGHT_MOTE[1]},${ARRIVAL_LIGHT_MOTE[2]},0)`);
+          g.addColorStop(0, `rgba(${mr},${mg},${mb},${a})`);
+          g.addColorStop(0.55, `rgba(${mr},${mg},${mb},${a * 0.55})`);
+          g.addColorStop(1, `rgba(${mr},${mg},${mb},0)`);
           ctx.fillStyle = g;
           ctx.beginPath();
           ctx.arc(mx, my, m.size, 0, Math.PI * 2);
@@ -3002,20 +3244,44 @@ const SIMPLIFY_DRIFT_HZ = 0.15;
 const SIMPLIFY_DRIFT_AMP = 0.03;
 const SIMPLIFY_SLOW_SPAWN_MS = 300;
 
-function SimplifyScreen({ next, onStillTooMuch, step }) {
+function simplifyNextTier(text) {
+  const s = (text || "").trim();
+  if (!s) return "One breath. That's the step.";
+  if (s.length <= 24) return "Pause. That's enough for now.";
+  const cuts = [
+    "Just open what you need.",
+    "Sit down. That's the whole step.",
+    "Look at it once. Stop there.",
+    "Put one thing within reach.",
+    "Say the first word out loud.",
+  ];
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h + s.charCodeAt(i) * (i + 3)) % cuts.length;
+  return cuts[h];
+}
+
+function SimplifyScreen({ next, step }) {
   const containerRef = useRef(null);
   const bgRef = useRef(null);
-  const originalRef = useRef(null);
+  const dissolveRef = useRef(null);
   const particleCanvasRef = useRef(null);
   const particlesRef = useRef([]);
   const startRef = useRef(0);
   const slowSpawnRef = useRef(0);
   const paletteRef = useRef(simplifyPaletteForHour());
+  const exitTimerRef = useRef(null);
 
   const reducedMotion = typeof window !== "undefined"
     && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const originalText = step?.text ?? "";
-  const smallerText = step?.tooHard ?? "";
+  const smallerText = step?.tooHard ?? originalText;
+
+  const [topText, setTopText] = useState(originalText);
+  const [bottomText, setBottomText] = useState(smallerText);
+  const [exitingTop, setExitingTop] = useState(null);
+  const [bottomFadeIn, setBottomFadeIn] = useState(true);
+  const [dissolveKey, setDissolveKey] = useState(0);
+
   const palette = simplifyPaletteForHour();
   paletteRef.current = palette;
 
@@ -3023,8 +3289,16 @@ function SimplifyScreen({ next, onStillTooMuch, step }) {
   const serifRgb = `rgb(${palette.serif[0]}, ${palette.serif[1]}, ${palette.serif[2]})`;
   const serifGhost = `rgba(${palette.serif[0]}, ${palette.serif[1]}, ${palette.serif[2]}, 0.6)`;
   const serifBorder = `rgba(${palette.serif[0]}, ${palette.serif[1]}, ${palette.serif[2]}, 0.15)`;
-  const origSize = simplifyTextSize(originalText);
-  const newSize = simplifyTextSize(smallerText);
+  const topSize = simplifyTextSize(topText);
+  const bottomSize = simplifyTextSize(bottomText);
+
+  useEffect(() => {
+    setTopText(originalText);
+    setBottomText(smallerText);
+    setExitingTop(null);
+    setBottomFadeIn(true);
+    setDissolveKey(0);
+  }, [originalText, smallerText]);
 
   useEffect(() => {
     particlesRef.current = [];
@@ -3033,14 +3307,14 @@ function SimplifyScreen({ next, onStillTooMuch, step }) {
 
     const container = containerRef.current;
     const particleCanvas = particleCanvasRef.current;
-    const originalEl = originalRef.current;
+    const dissolveEl = dissolveRef.current;
     if (!container || !particleCanvas) return;
 
     const ctx = particleCanvas.getContext("2d");
     const DPR = Math.min(window.devicePixelRatio || 1, 2);
 
     const resizeParticleCanvas = () => {
-      const wrap = originalEl?.parentElement;
+      const wrap = dissolveEl?.parentElement;
       if (!wrap) return;
       const w = wrap.clientWidth;
       const h = wrap.clientHeight;
@@ -3052,10 +3326,10 @@ function SimplifyScreen({ next, onStillTooMuch, step }) {
     };
 
     const spawnFromText = () => {
-      if (!originalEl) return;
-      const rects = Array.from(originalEl.getClientRects());
+      if (!dissolveEl) return;
+      const rects = Array.from(dissolveEl.getClientRects());
       if (!rects.length) return;
-      const wrapRect = originalEl.parentElement.getBoundingClientRect();
+      const wrapRect = dissolveEl.parentElement.getBoundingClientRect();
       const rect = rects[Math.floor(Math.random() * rects.length)];
       const x = rect.left - wrapRect.left + Math.random() * rect.width;
       const y = rect.top - wrapRect.top + Math.random() * rect.height;
@@ -3090,9 +3364,9 @@ function SimplifyScreen({ next, onStillTooMuch, step }) {
       const dissolveK = reducedMotion ? 1 : Math.min(1, elapsed / SIMPLIFY_DISSOLVE_MS);
       const origOpacity = reducedMotion ? 0.25 : 1 - dissolveK * 0.75;
       const origBlur = reducedMotion ? 1.5 : dissolveK * 1.5;
-      if (originalEl) {
-        originalEl.style.opacity = String(origOpacity);
-        originalEl.style.filter = `blur(${origBlur}px)`;
+      if (dissolveEl) {
+        dissolveEl.style.opacity = String(origOpacity);
+        dissolveEl.style.filter = `blur(${origBlur}px)`;
       }
 
       resizeParticleCanvas();
@@ -3133,9 +3407,9 @@ function SimplifyScreen({ next, onStillTooMuch, step }) {
     };
 
     resizeParticleCanvas();
-    if (originalEl) {
-      originalEl.style.opacity = reducedMotion ? "0.25" : "1";
-      originalEl.style.filter = reducedMotion ? "blur(1.5px)" : "blur(0px)";
+    if (dissolveEl) {
+      dissolveEl.style.opacity = reducedMotion ? "0.25" : "1";
+      dissolveEl.style.filter = reducedMotion ? "blur(1.5px)" : "blur(0px)";
     }
     raf = requestAnimationFrame(tick);
 
@@ -3148,7 +3422,22 @@ function SimplifyScreen({ next, onStillTooMuch, step }) {
       ro?.disconnect();
       window.removeEventListener("resize", resizeParticleCanvas);
     };
-  }, [originalText, reducedMotion]);
+  }, [topText, dissolveKey, reducedMotion]);
+
+  useEffect(() => () => {
+    if (exitTimerRef.current) clearTimeout(exitTimerRef.current);
+  }, []);
+
+  const handleSmallerStill = () => {
+    if (exitTimerRef.current) clearTimeout(exitTimerRef.current);
+    setExitingTop(topText);
+    setTopText(bottomText);
+    setBottomText(simplifyNextTier(bottomText));
+    setDissolveKey((k) => k + 1);
+    setBottomFadeIn(false);
+    requestAnimationFrame(() => setBottomFadeIn(true));
+    exitTimerRef.current = setTimeout(() => setExitingTop(null), 900);
+  };
 
   const shadowRest = `0 4px 16px rgba(${action[0]},${action[1]},${action[2]},0.35)`;
 
@@ -3163,6 +3452,12 @@ function SimplifyScreen({ next, onStillTooMuch, step }) {
         overflow: "hidden",
       }}
     >
+      <style>{`
+        @keyframes simplifyTierExit {
+          from { opacity: 0.35; transform: translateY(0); filter: blur(2px); }
+          to { opacity: 0; transform: translateY(-32px); filter: blur(8px); }
+        }
+      `}</style>
       <div
         ref={bgRef}
         aria-hidden
@@ -3195,12 +3490,34 @@ function SimplifyScreen({ next, onStillTooMuch, step }) {
           minHeight: 0,
         }}>
           <div style={{ position: "relative", width: "100%" }}>
+            {exitingTop ? (
+              <p
+                aria-hidden
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  margin: 0,
+                  fontFamily: "'DM Serif Display', Georgia, serif",
+                  fontSize: simplifyTextSize(exitingTop),
+                  lineHeight: 1.35,
+                  fontWeight: 400,
+                  textAlign: "center",
+                  color: serifRgb,
+                  overflowWrap: "break-word",
+                  pointerEvents: "none",
+                  animation: reducedMotion ? "none" : "simplifyTierExit 900ms ease forwards",
+                  opacity: reducedMotion ? 0 : undefined,
+                }}
+              >
+                {exitingTop}
+              </p>
+            ) : null}
             <p
-              ref={originalRef}
+              ref={dissolveRef}
               style={{
                 margin: 0,
                 fontFamily: "'DM Serif Display', Georgia, serif",
-                fontSize: origSize,
+                fontSize: topSize,
                 lineHeight: 1.35,
                 fontWeight: 400,
                 textAlign: "center",
@@ -3208,7 +3525,7 @@ function SimplifyScreen({ next, onStillTooMuch, step }) {
                 overflowWrap: "break-word",
               }}
             >
-              {originalText}
+              {topText}
             </p>
             <canvas
               ref={particleCanvasRef}
@@ -3228,14 +3545,17 @@ function SimplifyScreen({ next, onStillTooMuch, step }) {
             margin: 0,
             width: "100%",
             fontFamily: "'DM Serif Display', Georgia, serif",
-            fontSize: newSize,
+            fontSize: bottomSize,
             lineHeight: 1.35,
             fontWeight: 400,
             textAlign: "center",
             color: serifRgb,
             overflowWrap: "break-word",
+            opacity: bottomFadeIn ? 1 : 0,
+            transform: bottomFadeIn ? "translateY(0)" : "translateY(10px)",
+            transition: reducedMotion ? "none" : "opacity 420ms ease, transform 420ms ease",
           }}>
-            {smallerText}
+            {bottomText}
           </p>
         </div>
 
@@ -3250,7 +3570,7 @@ function SimplifyScreen({ next, onStillTooMuch, step }) {
         }}>
           <button
             type="button"
-            onClick={next}
+            onClick={() => next(bottomText)}
             style={{
               width: "100%",
               border: "none",
@@ -3270,7 +3590,7 @@ function SimplifyScreen({ next, onStillTooMuch, step }) {
           </button>
           <button
             type="button"
-            onClick={onStillTooMuch || next}
+            onClick={handleSmallerStill}
             style={{
               width: "100%",
               background: "transparent",
@@ -5596,6 +5916,7 @@ export default function NudgeApp() {
   const taskAllStepsCompleteRef = useRef(false);
   const handleDoneGuard = useRef("");
   const pinnedInProgressStep = useRef(null);
+  const pendingDescentAfterMoreRef = useRef(false);
   const prevPrimaryTask = useRef(null);
   const resumeStepIndexRef = useRef(null);
   const go = s => { prevScreen.current = screen; setScreen(s); };
@@ -5662,6 +5983,18 @@ export default function NudgeApp() {
   const handleStartDescent = (payload) => {
     if (stepsBusy || !currentStep?.text) return;
     setDescent(payload);
+  };
+
+  const queueDescentAfterMore = () => {
+    pendingDescentAfterMoreRef.current = true;
+    go("suggestion");
+  };
+
+  const handleSimplifyUse = (chosenText) => {
+    const label = (chosenText || "").trim();
+    if (!label || stepsBusy) return;
+    pinnedInProgressStep.current = { ...currentStep, text: label };
+    enterInProgress();
   };
 
   const handleDescentComplete = (lockedFocusPalette) => {
@@ -5771,15 +6104,29 @@ export default function NudgeApp() {
   const [shellBgOverride, setShellBgOverride] = useState(null);
   const [descent, setDescent] = useState(null);
   const resourceLink = stepLinks[stepIndex] || inProgressStep?.link || currentStep?.link || "";
-
   useEffect(() => {
     if (screen !== "inprogress") setGatherPhase("loading");
   }, [screen]);
 
   useEffect(() => {
     if (screen !== "inprogress") setGatherEntryMode("normal");
+  }, [screen]);
+
+  useEffect(() => {
     if (screen !== "suggestion" && !descent) setShellBgOverride(null);
   }, [screen, descent]);
+
+  useEffect(() => {
+    if (screen !== "suggestion" || stepsBusy || !currentStep?.text || descent) return;
+    if (!pendingDescentAfterMoreRef.current) return;
+    pendingDescentAfterMoreRef.current = false;
+    setDescent({
+      text: currentStep.text,
+      homePalette: homePaletteForHour(),
+      focusPalette: focusPaletteForHour(),
+      sessionStepCount,
+    });
+  }, [screen, stepsBusy, currentStep, descent, sessionStepCount]);
 
   const handleDone = () => {
     const doneStep = inProgressStep || currentStep;
@@ -5864,8 +6211,8 @@ export default function NudgeApp() {
     />,
     suggestion: <SuggestionScreen onStartDescent={handleStartDescent} isDescentActive={!!descent} onTooHard={() => { if (!stepsBusy && currentStep) go("simplify"); }} onAnother={() => go("allsteps")} onSkip={() => setStepIndex(i => (taskSteps.length ? (i + 1) % taskSteps.length : 0))} onExit={() => goHome("exit")} task={task} stepIndex={stepIndex} steps={taskSteps} energy={defaultEnergy} loading={stepsBusy} deferredNote={deferredNote} onDismissDeferNote={() => setDeferredNote("")} sessionStepCount={sessionStepCount} />,
     allsteps: <AllStepsScreen back={() => go("suggestion")} steps={taskSteps} task={task} stepIndex={stepIndex} onPick={i => { setStepIndex(i); go("suggestion"); }} loading={stepsBusy} stepLinks={stepLinks} onSetStepLink={(i, url) => setStepLinks(p => ({ ...p, [i]: url }))} />,
-    inprogress: <InProgressScreen gatherPhase={gatherPhase} onGatherPhaseChange={setGatherPhase} step={inProgressStep} resourceLink={resourceLink} stepsLoading={stepsBusy && !pinnedInProgressStep.current} onDone={handleDone} onPause={() => { setPausedStep(inProgressStep); go("pause"); }} onTooMuch={() => go("simplify")} onDefer={(note) => { setDeferredNote(note); go("suggestion"); }} onMore={() => go("suggestion")} onDoneForNow={openSessionComplete} focusPalette={focusPalette} skipGatherIntro={gatherEntryMode === "fromDescent"} />,
-    simplify: <SimplifyScreen next={enterInProgress} onStillTooMuch={() => go("suggestion")} step={currentStep} />,
+    inprogress: <InProgressScreen gatherPhase={gatherPhase} onGatherPhaseChange={setGatherPhase} step={inProgressStep} resourceLink={resourceLink} stepsLoading={stepsBusy && !pinnedInProgressStep.current} onDone={handleDone} onPause={() => { setPausedStep(inProgressStep); go("pause"); }} onTooMuch={() => go("simplify")} onDefer={(note) => { setDeferredNote(note); go("suggestion"); }} onMore={queueDescentAfterMore} onDoneForNow={openSessionComplete} focusPalette={focusPalette} skipGatherIntro={gatherEntryMode === "fromDescent"} />,
+    simplify: <SimplifyScreen next={handleSimplifyUse} step={currentStep} />,
     pause: <PauseScreen
       onSaveAndPause={(data) => { savePauseState(data); go("return_paused"); }}
       onComeBackLater={(data) => { savePauseState(data); go("return_paused"); }}
@@ -5882,7 +6229,7 @@ export default function NudgeApp() {
     />,
     history: <HistoryScreen history={completedHistory} onBack={() => goHome("list")} />,
     paused_confirm: <PausedConfirmScreen next={() => goHome("done")} />,
-    done: <DoneScreen onDoneForNow={openSessionComplete} next={() => goHome("done")} onMore={() => go("suggestion")} isLast={isLastStep} />,
+    done: <DoneScreen onDoneForNow={openSessionComplete} next={() => goHome("done")} onMore={queueDescentAfterMore} isLast={isLastStep} />,
     session_complete: <SessionCompleteScreen
       stepCount={sessionStepCount}
       sessionSteps={sessionSteps}
