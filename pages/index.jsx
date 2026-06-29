@@ -1815,18 +1815,18 @@ const FOCUS_PALETTES = {
     scDomeCenter: [80, 115, 105], scWater: [240, 195, 165], scInk: [42, 36, 56],
   },
   afternoon: {
-    bg: [88, 72, 138],
-    disc: [40, 28, 80],
-    domeCenter: [63, 51, 103], domeEdge: [40, 28, 80],
-    waterStart: [195, 145, 170], waterEnd: [230, 195, 210],
-    pulse: [195, 145, 170],
-    mote: [225, 185, 205],
-    bloom: [248, 245, 248],
-    ring: [180, 160, 230],
-    vesselText: [245, 240, 248],
-    serif: [42, 38, 64],
-    hint: [240, 232, 248], hintAlpha: 0.75,
-    scDomeCenter: [70, 50, 120], scWater: [220, 175, 195], scInk: [245, 240, 248],
+    bg: [14, 74, 102],
+    disc: [12, 63, 88],
+    domeCenter: [16, 78, 105], domeEdge: [12, 63, 88],
+    waterStart: [35, 127, 128], waterEnd: [220, 241, 242],
+    pulse: [46, 156, 156],
+    mote: [143, 196, 206],
+    bloom: [191, 224, 238],
+    ring: [156, 201, 220],
+    vesselText: [220, 241, 242],
+    serif: [11, 58, 77],
+    hint: [143, 196, 206], hintAlpha: 0.75,
+    scDomeCenter: [16, 78, 105], scWater: [220, 241, 242], scInk: [220, 241, 242],
   },
   evening: {
     bg: [28, 22, 48],
@@ -3207,7 +3207,7 @@ function ArrivalScreen({ stepsLoading, stepsReady, lastChoiceId, onChoose, onCom
 // Simplify screen — single misty fog zone per time-of-day band.
 const SIMPLIFY_PALETTES = {
   morning: { fog: [183, 182, 168], serif: [42, 36, 56] },
-  afternoon: { fog: [160, 147, 174], serif: [245, 240, 248] },
+  afternoon: { fog: [191, 224, 238], serif: [11, 58, 77] },
   evening: { fog: [60, 50, 90], serif: [237, 234, 228] },
 };
 
@@ -3837,12 +3837,12 @@ const HOME_PALETTES = {
     starOpacity: 0,
   },
   afternoon: {
-    sky: [232, 222, 210],
-    ocean: [88, 72, 138],
-    serif: [42, 38, 64],
-    muted: [120, 110, 142],
-    action: [195, 145, 170],
-    card: [50, 35, 90, 0.14],
+    sky: [191, 224, 238],
+    ocean: [14, 74, 102],
+    serif: [11, 58, 77],
+    muted: [92, 141, 160],
+    action: [46, 156, 156],
+    card: [10, 56, 80, 0.14],
     starOpacity: 0,
   },
   evening: {
